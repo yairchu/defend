@@ -2,14 +2,12 @@ import Chess
 import ChessFont
 
 import Control.Monad (forM, join, when, unless)
-import Data.Foldable (any, foldl', forM_, toList)
+import Data.Foldable (foldl', forM_)
 import Data.List (genericTake)
 import Data.Monoid
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT
-
-import Prelude hiding (any)
 
 faceNormal :: (Floating a, Ord a) => [[a]] -> [a]
 faceNormal points =
@@ -19,11 +17,12 @@ faceNormal points =
     base = map (zipWith (-) offset) (tail points)
     [[a0, a1, a2], [b0, b1, b2]] = base
 
+normalizeVec :: Floating a => [a] -> [a]
 normalizeVec vec
   | all (== 0) vec = vec
   | otherwise = map (/ norm) vec
   where
-    norm = sqrt . sum $ map (^ 2) vec
+    norm = sqrt . sum $ map (^ (2 :: Int)) vec
 
 screen2board :: DrawPos -> BoardPos
 screen2board (cx, cy) =
@@ -50,7 +49,7 @@ expandOutline ammount outline =
   where
     t = map intersection $ outlineSegments segments
     intersection
-      (a@((xa0, ya0), (xa1, ya1))
+      (a@((xa0, _), (xa1, _))
       ,b@((xb0, yb0), (xb1, yb1)))
       | xa0 == xa1 =
         (xa0, yb0 + (xa0-xb0) * (yb1-yb0) / (xb1-xb0))
@@ -71,7 +70,7 @@ expandOutline ammount outline =
 type Selection = (BoardPos, Maybe BoardPos)
 
 draw :: (Board, (Selection, DrawPos)) -> Image
-draw (board, ((dragSrc, dragDst), cpos@(cx, cy))) =
+draw (board, ((dragSrc, dragDst), (cx, cy))) =
   Image $ do
     cursor $= None
     lineSmooth $= Enabled
@@ -93,7 +92,7 @@ draw (board, ((dragSrc, dragDst), cpos@(cx, cy))) =
     srcFirst Nothing = True
     srcFirst (Just dst) = cursorDist dragSrc < cursorDist dst
     cursorDist = cursorDist' . board2screen
-    cursorDist' (x, y) = (cx-x)^2 + (cy-y)^2
+    cursorDist' (x, y) = (cx-x)^(2::Int) + (cy-y)^(2::Int)
     headingUp = normal $ Normal3 0 0 (-1 :: GLfloat)
     drawPiece piece = do
       let
@@ -130,7 +129,7 @@ draw (board, ((dragSrc, dragDst), cpos@(cx, cy))) =
       forM_ [0..7] $ \bx ->
       forM_ [0..7] $ \by -> do
         let
-          col = 0.3 + 0.1 * fromIntegral ((bx + by) `mod` 2)
+          col = 0.3 + 0.1 * fromIntegral ((bx + by) `mod` (2::Int))
           r ba va = 0.125*((fromIntegral ba*2+va)-7)
         materialDiffuse Front $= Color4 col col col 1
         headingUp
@@ -162,13 +161,13 @@ draw (board, ((dragSrc, dragDst), cpos@(cx, cy))) =
         materialDiffuse Front $=
           case pieceUnderCursor of
             Nothing -> Color4 1 1 0 0.5
-            otherwise -> Color4 0 1 0 1
+            _ -> Color4 0 1 0 1
         forM_ (take 1 points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
         materialDiffuse Front $=
           case pieceUnderCursor of
             Nothing -> Color4 1 1 0 0
-            otherwise -> Color4 0 1 0 0.5
+            _ -> Color4 0 1 0 0.5
         forM_ (tail points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
     pieceUnderCursor = pieceAt board dragSrc
@@ -197,10 +196,6 @@ delayEvent count =
   where
     step xs x = x : genericTake count xs
 
-isGoodMove :: Board -> BoardPos -> BoardPos -> Bool
-isGoodMove board src dst =
-  any(any ((== dst) . fst) . possibleMoves board) $ pieceAt board src
-
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
 maybeMinimumOn f =
   foldl' maybeMin Nothing
@@ -217,7 +212,7 @@ chooseMove board src (dx, dy) =
   pieceAt board src
   where
     dist pos =
-      (px-dx) ^ 2 + (py-dy) ^ 2
+      (px-dx)^(2::Int) + (py-dy)^(2::Int)
       where
         (px, py) = board2screen pos
 
@@ -241,7 +236,7 @@ game ui =
         proc (brd, (src, dst)) =
           (src, fmap fst (procDst brd src dst))
     selectionRaw =
-      edrop 1 .
+      edrop (1::Int) .
       escanl drag (Up, undefined) $
       ezip' (keyState ui (MouseButton LeftButton)) (mouseMotionEvent ui)
     drag (Down, (x, _)) (Down, c) =
@@ -256,7 +251,7 @@ game ui =
     moves =
       fmap (snd . fst) $
       efilter moveFilter $
-      ezip' (delayEvent 1 selectionRaw) selectionRaw
+      ezip' (delayEvent (1::Int) selectionRaw) selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
 

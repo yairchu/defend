@@ -4,8 +4,14 @@ Cabal-Version:       >= 1.2
 Synopsis:            A graphical demo. Will be a game
 Category:            game, FRP
 Description:
+
+  Defend the King from the Forces of Different:
+
   A graphical demo.
-  Intended to become a simple multiplayer RTS game.
+
+  Intended to become a simple fast-paced multiplayer RTS game
+  in the likes of Bughouse-Chess and Starcraft.
+
 Author:              Yair Chuchem
 Maintainer:          Yair Chuchem (yairchu@gmail.com)
 Copyright:           (c) 2009, Yair Chuchem

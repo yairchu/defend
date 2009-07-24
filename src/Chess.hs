@@ -109,7 +109,7 @@ possibleMoves board piece =
       inBoard pos &&
       all isOtherSide (pieceAt board pos)
     promotionRow = pawnStartRow + 6 * forward
-    pawnMove dst@(dx, dy)
+    pawnMove dst@(_, dy)
       | dy /= promotionRow = simpleMove dst
       | otherwise = move (piece { pieceType = Queen }) dst dst
     otherMoves Pawn =
@@ -128,7 +128,7 @@ possibleMoves board piece =
         moveForward = filter (null . pieceAt board) [(sx, sy+forward)]
         sprintDst = (sx, sy+forward*2)
         enPassant Nothing = []
-        enPassant (Just (lpiece, m@(mx, my)))
+        enPassant (Just (lpiece, (mx, my)))
           | py /= sy = []
           | abs (mx-sx) /= 1 = []
           | abs (py-my) /= 2 = []
@@ -138,8 +138,7 @@ possibleMoves board piece =
           | otherwise = [move piece prevPos dst]
           where
             dst = (mx, sy+forward)
-            newPieceState = piece { piecePos = dst }
-            prevPos@(px, py) = piecePos lpiece
+            prevPos@(_, py) = piecePos lpiece
     otherMoves King = do
       guard . not $ pieceMoved piece
       let

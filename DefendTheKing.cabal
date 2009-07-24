@@ -1,0 +1,26 @@
+Name:                DefendTheKing
+Version:             0.1
+Cabal-Version:       >= 1.2
+Synopsis:            A graphical demo. Will be a game
+Category:            game, FRP
+Description:
+  A graphical demo.
+  Intended to become a simple multiplayer RTS game.
+Author:              Yair Chuchem
+Maintainer:          Yair Chuchem (yairchu@gmail.com)
+Copyright:           (c) 2009, Yair Chuchem
+License:             GPL
+License-File:        LICENSE
+Stability:           experimental
+Build-Type:          Simple
+Extra-Source-Files:
+  src/defend.hs
+  src/Chess.hs
+  src/ChessFont.hs
+Executable defend
+  Executable:        defend
+  HS-Source-Dirs:    src
+  Main-IS:           defend.hs
+  Build-Depends:     base, peakachu, GLUT
+  GHC-Options:       -O2 -Wall
+

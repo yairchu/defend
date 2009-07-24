@@ -14,6 +14,7 @@ Description:
 
 Author:              Yair Chuchem
 Maintainer:          Yair Chuchem (yairchu@gmail.com)
+Homepage:            http://github.com/yairchu/defend/tree
 Copyright:           (c) 2009, Yair Chuchem
 License:             GPL
 License-File:        LICENSE
@@ -27,6 +28,6 @@ Executable defend
   Executable:        defend
   HS-Source-Dirs:    src
   Main-IS:           defend.hs
-  Build-Depends:     base, peakachu, GLUT
+  Build-Depends:     base >=2 && < 5, peakachu, GLUT
   GHC-Options:       -O2 -Wall
 

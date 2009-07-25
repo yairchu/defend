@@ -1,9 +1,8 @@
 module ChessFont (DrawPos, PiecePix(..), piecePix, pixBody) where
 
 import Chess (PieceType(..))
+import Geometry (triangulatePolygon)
 
-import Data.List (minimumBy)
-import Data.Ord (comparing)
 import Graphics.UI.GLUT (GLfloat)
 
 type DrawPos = (GLfloat, GLfloat)
@@ -12,21 +11,8 @@ data PiecePix = PiecePix {
   pixOutline :: [[DrawPos]]
 }
 
-minimumOn :: Ord b => (a -> b) -> [a] -> a
-minimumOn func = minimumBy (comparing func)
-
-triangulate :: [DrawPos] -> [[DrawPos]]
-triangulate xs
-  | length xs < 3 = []
-  | otherwise = cur : triangulate rest
-  where
-    argMinX = minimumOn (fst . (xs !!)) [0 .. length xs - 1]
-    (pre, x : post) = splitAt argMinX xs
-    rest = post ++ pre
-    cur = [last rest, x, head rest]
-
 calcBody :: [[DrawPos]] -> [[DrawPos]]
-calcBody = concatMap triangulate
+calcBody = concatMap triangulatePolygon
 
 pixBody :: PiecePix -> [[DrawPos]]
 pixBody = calcBody . pixOutline

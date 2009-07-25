@@ -1,24 +1,43 @@
-module ChessFont (DrawPos, PiecePix(..), piecePix) where
+module ChessFont (DrawPos, PiecePix(..), piecePix, pixBody) where
 
 import Chess (PieceType(..))
 
+import Data.List (minimumBy)
+import Data.Ord (comparing)
 import Graphics.UI.GLUT (GLfloat)
 
 type DrawPos = (GLfloat, GLfloat)
 
 data PiecePix = PiecePix {
-  pixBody :: [[DrawPos]],
   pixOutline :: [[DrawPos]]
 }
 
+minimumOn :: Ord b => (a -> b) -> [a] -> a
+minimumOn func = minimumBy (comparing func)
+
+triangulate :: [DrawPos] -> [[DrawPos]]
+triangulate xs
+  | length xs < 3 = []
+  | otherwise = cur : triangulate rest
+  where
+    argMinX = minimumOn (fst . (xs !!)) [0 .. length xs - 1]
+    (pre, x : post) = splitAt argMinX xs
+    rest = post ++ pre
+    cur = [last rest, x, head rest]
+
+calcBody :: [[DrawPos]] -> [[DrawPos]]
+calcBody = concatMap triangulate
+
+pixBody :: PiecePix -> [[DrawPos]]
+pixBody = calcBody . pixOutline
+
 piecePix :: PieceType -> PiecePix
 piecePix Pawn =
-  PiecePix r r
+  PiecePix r
   where
     r = [[(-s, -s), (-s, s), (s, s), (s, -s)]]
     s = 0.6
 piecePix Rook = PiecePix {
-  pixBody = [thing, othing, [(-s, -s), (-s, s), (s, s), (s, -s)]],
   pixOutline = [thing ++ othing]
   }
   where
@@ -27,21 +46,16 @@ piecePix Rook = PiecePix {
     othing = map r thing
     r (x, y) = (-x, -y)
 piecePix Knight = PiecePix {
-  pixBody = [[a, b, e] ,[b, c, d]],
   pixOutline = [outline]
   }
   where
     outline = [(-1, 0), (1, 1), (0.5, -1), (-1, -1), (0, 0)]
-    [a, b, c, d, e] = outline
 piecePix Bishop = PiecePix {
-  pixBody = [[a, b, d], [b, c, d]],
   pixOutline = [outline]
   }
   where
     outline = [(-1, -1), (0, 1), (1, -1), (0, -0.5)]
-    [a, b, c, d] = outline
 piecePix King = PiecePix {
-  pixBody = [leye, reye, [a, b, e], [c, d, e]],
   pixOutline = [reverse leye, reye, mouthline]
   }
   where
@@ -52,15 +66,12 @@ piecePix King = PiecePix {
       [(-0.75, -0.75), (-0.75, -0.25)
       ,(0, -0.5)
       ,(0.75, -0.25), (0.75, -0.75)]
-    [a, b, c, d, e] = mouthline
 piecePix Queen = PiecePix {
-  pixBody = [[a, b, j], [d, e, f], [c, h, i], [c, g, h]],
   pixOutline = [outline]
   }
   where
     outline =
       [(-1, 1), (-0.25, 0.5), (0, 1), (0.25, 0.5), (1, 1)
       ,(0.5, 0), (1, -1), (0, -0.5), (-1, -1), (-0.5, 0)]
-    [a, b, c, d, e, f, g, h, i, j] = outline
 
 

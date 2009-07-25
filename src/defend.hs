@@ -1,5 +1,6 @@
 import Chess
 import ChessFont
+import Geometry
 
 import Control.Monad (forM, join, when, unless)
 import Data.Foldable (foldl', forM_)
@@ -8,21 +9,6 @@ import Data.Monoid
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT
-
-faceNormal :: (Floating a, Ord a) => [[a]] -> [a]
-faceNormal points =
-  normalizeVec [a1*b2-a2*b1, a2*b0-a0*b2, a0*b1-a1*b0]
-  where
-    offset = head points
-    base = map (zipWith (-) offset) (tail points)
-    [[a0, a1, a2], [b0, b1, b2]] = base
-
-normalizeVec :: Floating a => [a] -> [a]
-normalizeVec vec
-  | all (== 0) vec = vec
-  | otherwise = map (/ norm) vec
-  where
-    norm = sqrt . sum $ map (^ (2 :: Int)) vec
 
 screen2board :: DrawPos -> BoardPos
 screen2board (cx, cy) =
@@ -35,37 +21,6 @@ board2screen (bx, by) =
   (r bx, r by)
   where
     r ba = (fromIntegral ba - 3.5) / 4
-
-tailRot :: [a] -> [a]
-tailRot [] = []
-tailRot (x : xs) = xs ++ [x]
-
-outlineSegments :: [a] -> [(a, a)]
-outlineSegments xs = zip xs (tailRot xs)
-
-expandOutline :: GLfloat -> [DrawPos] -> [DrawPos]
-expandOutline ammount outline =
-  last t : init t
-  where
-    t = map intersection $ outlineSegments segments
-    intersection
-      (a@((xa0, _), (xa1, _))
-      ,b@((xb0, yb0), (xb1, yb1)))
-      | xa0 == xa1 =
-        (xa0, yb0 + (xa0-xb0) * (yb1-yb0) / (xb1-xb0))
-      | xb0 == xb1 = intersection (b, a)
-      | otherwise =
-        (x, yAt0 a + x * d a)
-      where
-        x = (yAt0 a - yAt0 b) / (d b - d a)
-    d ((x0, y0), (x1, y1)) = (y1-y0)/(x1-x0)
-    yAt0 s@((x0, y0), _) = y0 - x0 * d s
-    segments = map expandSegment $ outlineSegments outline
-    expandSegment ((ax, ay), (bx, by)) =
-      ((ax + ammount * nx, ay + ammount * ny)
-      ,(bx + ammount * nx, by + ammount * ny))
-      where
-        [nx, ny] = normalizeVec [ay - by, bx - ax]
 
 type Selection = (BoardPos, Maybe BoardPos)
 
@@ -82,7 +37,7 @@ draw (board, ((dragSrc, dragDst), (cx, cy))) =
     lighting $= Enabled
     light (Light 0) $= Enabled
     position (Light 0) $= Vertex4 0 0 (-1) 0
-    cullFace $= Nothing
+    cullFace $= Just Front
     drawBoard
     forM_ (boardPieces board) drawPiece
     when (srcFirst dragDst) $ drawCursor dragSrc
@@ -120,10 +75,10 @@ draw (board, ((dragSrc, dragDst), (cx, cy))) =
       materialDiffuse Front $= outlineCol
       renderPrimitive Quads .
         forM (pixOutline pix) $ \outline ->
-        forM (outlineSegments 
-          (zip outline (expandOutline (-0.06) outline))) $
-          \((a, b), (d, c)) ->
-          forM [a, b, c, d] . vert $ pieceSize * 0.125
+        forM (polygonEdges
+          (zip outline (expandPolygon (-0.06) outline))) $
+          \((a, b), (c, d)) ->
+          forM [c, d, b, a] . vert $ pieceSize * 0.125
     pieceSize = 0.9
     drawBoard =
       forM_ [0..7] $ \bx ->
@@ -144,7 +99,7 @@ draw (board, ((dragSrc, dragDst), (cx, cy))) =
     drawCursor' boardPos =
       renderPrimitive Triangles .
       forM_ curPix $ \part ->
-      forM_ (outlineSegments part) $
+      forM_ (polygonEdges part) $
       \((ax, ay), (bx, by)) -> do
         let
           (rx, ry) = board2screen boardPos

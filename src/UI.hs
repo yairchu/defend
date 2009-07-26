@@ -2,7 +2,6 @@ module UI where
 
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
-import Data.List (genericTake)
 import Data.Monoid
 import Graphics.UI.GLUT
 
@@ -15,12 +14,10 @@ keyState key ui =
     m (_, state, _, _) = state
     f (k, _, _, _) = k == key
 
-delayEvent :: Integral i => i -> Event a -> Event a
-delayEvent count =
-  fmap last .
-  edrop count .
-  escanl step []
+eWithPrev :: Event a -> Event (a, a)
+eWithPrev =
+  fmap f . edrop (1::Int) . escanl step []
   where
-    step xs x = x : genericTake count xs
-
+    step xs x = x : take 1 xs
+    f l = (head l, l !! 1)
 

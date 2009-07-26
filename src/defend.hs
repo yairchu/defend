@@ -181,9 +181,9 @@ game = do
         proc (brd, (src, dst)) =
           (src, fmap fst (procDst brd src dst))
     moves =
-      fmap (snd . fst) $
+      fmap (snd . fst) .
       efilter moveFilter $
-      ezip' (delayEvent (1::Int) selectionRaw) selectionRaw
+      eWithPrev selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
   fmap draw .

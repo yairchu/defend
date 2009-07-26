@@ -3,6 +3,8 @@ module Geometry (
   polygonEdges, triangulatePolygon
   ) where
 
+import Data.Function (on)
+
 faceNormal :: (Floating a, Ord a) => [[a]] -> [a]
 faceNormal points =
   normalizeVector [a1*b2-a2*b1, a2*b0-a0*b2, a0*b1-a1*b0]
@@ -71,18 +73,48 @@ pointInPolygon (px, py) polygon =
   where
     horizLine = ((0, py), (1, py))
     crosses e@((_, ey0), (_, ey1)) =
-      ix > px && iy > min ey0 ey1 && iy < max ey0 ey1
+      ey0 /= ey1 &&
+      ix > px &&
+      iy >= min ey0 ey1 && iy < max ey0 ey1
       where
         (ix, iy) = lineIntersection horizLine e
 
-triangulatePolygon :: (Ord a, Floating a) => [(a, a)] -> [[(a, a)]]
-triangulatePolygon points
-  | length points < 3 = []
-  | not (isFrontPolygon points) = []
-  | not (isFrontPolygon abc) ||
-    any (`pointInPolygon` abc) rest =
-    triangulatePolygon (tailRot points)
-  | otherwise = abc : triangulatePolygon ([a, c] ++ rest)
+linesParallel :: Fractional a => Line a -> Line a -> Bool
+linesParallel = (==) `on` slope
+
+segmentsIntersect :: (Ord a, Fractional a) => Line a -> Line a -> Bool
+segmentsIntersect a b
+  | linesParallel a b = False
+  | otherwise = inLine a && inLine b
   where
-    (abc@[a, _, c], rest) = splitAt 3 points
+    (cx, cy) = lineIntersection a b
+    inLine ((x0, y0), (x1, y1)) = t cx x0 x1 || t cy y0 y1
+    t ca a0 a1 = min a0 a1 < ca - epsilon && ca + epsilon < max a0 a1
+    epsilon = 0.00001 -- for floating-point inaccuracies
+
+listRotations :: [a] -> [[a]]
+listRotations list =
+  take (length list) $ iterate tailRot list
+
+triangulatePolygon :: (Ord a, Fractional a) => [(a, a)] -> [[(a, a)]]
+triangulatePolygon points
+  | length points < 3
+  || not (isFrontPolygon points)
+  = []
+  | otherwise =
+    case ears of
+      [] -> []
+      (ear : _) ->
+        let
+          (abc@[a, _, c], rest) = splitAt 3 ear
+        in
+          abc : triangulatePolygon ([a, c] ++ rest)
+  where
+    ears = filter isEar $ listRotations points
+    isEar rot =
+      isFrontPolygon abc
+      && not (any (`pointInPolygon` abc) rest)
+      && not (any (segmentsIntersect (a, c)) (polygonEdges points))
+      where
+        (abc@[a, _, c], rest) = splitAt 3 rot
 

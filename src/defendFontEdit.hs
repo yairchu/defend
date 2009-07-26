@@ -17,7 +17,7 @@ draw (polygons, cpos@(cx, cy)) =
     color $ Color4 0.1 0.3 0.1 (1 :: GLfloat)
     renderPrimitive Triangles .
       forM (addPoint polygons cpos) $ \poly ->
-      forM (triangulatePolygon poly) .
+      forM (map (expandPolygon (-0.01)) (triangulatePolygon poly)) .
       mapM $ \(x, y) ->
       vertex $ Vertex2 x y
     forM gridLines $ \x ->
@@ -62,9 +62,9 @@ atClick key event =
 addPoint :: Eq a => [[a]] -> a -> [[a]]
 addPoint [] x = [[x]]
 addPoint ([] : ps) x = [x] : ps
-addPoint ((y : ys) : ps) x
-  | x == y = [] : (y : ys) : ps
-  | otherwise = (y : ys ++ [x]) : ps
+addPoint (ys : ps) x
+  | x `elem` ys = [] : ys : ps
+  | otherwise = (ys ++ [x]) : ps
 
 game :: UI -> Event Image
 game = do

@@ -1,11 +1,10 @@
 import Chess
 import ChessFont
 import Geometry
+import UI
 
-import Control.Monad (forM, join, when, unless)
+import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
-import Data.List (genericTake)
-import Data.Monoid
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT
@@ -131,23 +130,6 @@ draw (board, ((dragSrc, dragDst), (cx, cy))) =
         t (x, y) = (pieceSize*x, pieceSize*y)
     square = [((-1), (-1)), ((-1), 1), (1, 1), (1, (-1))]
 
-keyState :: UI -> Key -> Event KeyState
-keyState ui key =
-  mappend (ereturn Up) .
-  fmap m $
-  efilter f (glutKeyboardMouseEvent ui)
-  where
-    m (_, state, _, _) = state
-    f (k, _, _, _) = k == key
-
-delayEvent :: Integral i => i -> Event a -> Event a
-delayEvent count =
-  fmap last .
-  edrop count .
-  escanl step []
-  where
-    step xs x = x : genericTake count xs
-
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
 maybeMinimumOn f =
   foldl' maybeMin Nothing
@@ -169,11 +151,22 @@ chooseMove board src (dx, dy) =
         (px, py) = board2screen pos
 
 game :: UI -> Event Image
-game ui =
-  fmap draw .
-  ezip' board $
-  ezip' selection (mouseMotionEvent ui)
-  where
+game = do
+  let
+    drag (Down, (x, _)) (Down, c) =
+      (Down, (x, Just c))
+    drag _ (s, c) =
+      (s, (spos, dst))
+      where
+        spos = screen2board c
+        dst
+          | s == Up = Nothing
+          | otherwise = Just c
+  selectionRaw <-
+    fmap (edrop (1::Int) .
+      escanl drag (Up, undefined)) $
+    liftM2 ezip' (keyState (MouseButton LeftButton)) mouseMotionEvent
+  let
     board = escanl doMove chessStart moves
     procDst brd src = join . fmap (chooseMove brd src)
     doMove brd (src, dst) =
@@ -187,25 +180,16 @@ game ui =
       where
         proc (brd, (src, dst)) =
           (src, fmap fst (procDst brd src dst))
-    selectionRaw =
-      edrop (1::Int) .
-      escanl drag (Up, undefined) $
-      ezip' (keyState ui (MouseButton LeftButton)) (mouseMotionEvent ui)
-    drag (Down, (x, _)) (Down, c) =
-      (Down, (x, Just c))
-    drag _ (s, c) =
-      (s, (spos, dst))
-      where
-        spos = screen2board c
-        dst
-          | s == Up = Nothing
-          | otherwise = Just c
     moves =
       fmap (snd . fst) $
       efilter moveFilter $
       ezip' (delayEvent (1::Int) selectionRaw) selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
+  fmap draw .
+    ezip' board .
+    ezip' selection .
+    mouseMotionEvent
 
 main :: IO ()
 main = do

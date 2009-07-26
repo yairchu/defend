@@ -30,4 +30,10 @@ Executable defend
   Main-IS:           defend.hs
   Build-Depends:     base >=2 && < 5, peakachu, GLUT
   GHC-Options:       -O2 -Wall
+Executable defendFontEdit
+  Executable:        defendFontEdit
+  HS-Source-Dirs:    src
+  Main-IS:           defendFontEdit.hs
+  Build-Depends:     base >=2 && < 5, peakachu, GLUT
+  GHC-Options:       -O2 -Wall
 

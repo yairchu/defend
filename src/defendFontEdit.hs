@@ -11,18 +11,19 @@ gridRadius = 4
 
 type DrawPos = (GLfloat, GLfloat)
 
-draw :: ([DrawPos], DrawPos) -> Image
-draw (points, cpos@(cx, cy)) =
+draw :: ([[DrawPos]], DrawPos) -> Image
+draw (polygons, cpos@(cx, cy)) =
   Image $ do
     color $ Color4 0.1 0.3 0.1 (1 :: GLfloat)
     renderPrimitive Triangles .
-      forM (triangulatePolygon (cpos : points)) .
+      forM (addPoint polygons cpos) $ \poly ->
+      forM (triangulatePolygon poly) .
       mapM $ \(x, y) ->
       vertex $ Vertex2 x y
     forM gridLines $ \x ->
       forM gridLines $ \y ->
       drawPoint x y 0.03 (Color4 0.5 0.5 0.5 1)
-    forM points $ \(x, y) ->
+    forM (concat polygons) $ \(x, y) ->
       drawPoint x y 0.07 (Color4 0.3 1 0.2 1)
     drawPoint cx cy 0.05 (Color4 1 0.2 0.2 1)
     return ()
@@ -58,14 +59,20 @@ atClick key event =
     isClick ((_, Up), (_, Down)) = True
     isClick _ = False
 
+addPoint :: Eq a => [[a]] -> a -> [[a]]
+addPoint [] x = [[x]]
+addPoint ([] : ps) x = [x] : ps
+addPoint ((y : ys) : ps) x
+  | x == y = [] : (y : ys) : ps
+  | otherwise = (y : ys ++ [x]) : ps
+
 game :: UI -> Event Image
 game = do
   mouse <- fmap (fmap toGrid) mouseMotionEvent
   clicks <- atClick (MouseButton LeftButton) mouse
   let
-    outline = escanl step [] clicks
-    step xs x = xs ++ [x]
-  return . fmap draw $ ezip' outline mouse
+    outlines = escanl addPoint [] clicks
+  return . fmap draw $ ezip' outlines mouse
 
 main :: IO ()
 main = do

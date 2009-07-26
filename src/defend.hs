@@ -66,12 +66,9 @@ draw (board, ((dragSrc, dragDst), (cx, cy))) =
             (sy + m*vy) 0 1
       headingUp
       materialDiffuse Front $= bodyCol
-      forM (pixBody pix) $ \poly -> do
-        let
-          polyType
-            | 3 == length poly = Triangles
-            | otherwise = Quads
-        renderPrimitive polyType . forM poly . vert $ pieceSize * 0.125
+      renderPrimitive Triangles .
+        forM (pixBody pix) .
+        mapM $ vert (pieceSize * 0.125)
       materialDiffuse Front $= outlineCol
       renderPrimitive Quads .
         forM (pixOutline pix) $ \outline ->

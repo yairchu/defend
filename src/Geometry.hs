@@ -56,14 +56,17 @@ expandPolygon ammount outline =
       where
         [nx, ny] = normalizeVector [ay - by, bx - ax]
 
-isFrontTriangle :: (Ord a, Num a) => [(a, a)] -> Bool
-isFrontTriangle points =
-  (x2-x0)*(y1-y0)-(x1-x0)*(y2-y0) >= 0
+twicePolygonArea :: Num a => [(a, a)] -> a
+twicePolygonArea =
+  sum . map f . polygonEdges
   where
-    [(x0, y0), (x1, y1), (x2, y2)] = points
+    f ((x0, y0), (x1, y1)) = x1*y0-x0*y1
+
+isFrontPolygon :: (Ord a, Num a) => [(a, a)] -> Bool
+isFrontPolygon = (>= 0) . twicePolygonArea
 
 pointInPolygon :: (Ord a, Fractional a) => (a, a) -> [(a, a)] -> Bool
-pointInPolygon point@(px, py) polygon =
+pointInPolygon (px, py) polygon =
   length (filter crosses (polygonEdges polygon)) `mod` 2 == 1
   where
     horizLine = ((0, py), (1, py))
@@ -75,10 +78,11 @@ pointInPolygon point@(px, py) polygon =
 triangulatePolygon :: (Ord a, Floating a) => [(a, a)] -> [[(a, a)]]
 triangulatePolygon points
   | length points < 3 = []
-  | not (isFrontTriangle abc) ||
+  | not (isFrontPolygon points) = []
+  | not (isFrontPolygon abc) ||
     any (`pointInPolygon` abc) rest =
     triangulatePolygon (tailRot points)
   | otherwise = abc : triangulatePolygon ([a, c] ++ rest)
   where
-    (abc@[a, b, c], rest) = splitAt 3 points
+    (abc@[a, _, c], rest) = splitAt 3 points
 

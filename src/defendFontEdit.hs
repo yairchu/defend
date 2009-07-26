@@ -1,3 +1,6 @@
+import Geometry
+import UI
+
 import Control.Monad
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
@@ -9,8 +12,13 @@ gridRadius = 4
 type DrawPos = (GLfloat, GLfloat)
 
 draw :: ([DrawPos], DrawPos) -> Image
-draw (points, (cx, cy)) =
+draw (points, cpos@(cx, cy)) =
   Image $ do
+    color $ Color4 0.1 0.3 0.1 (1 :: GLfloat)
+    renderPrimitive Triangles .
+      forM (triangulatePolygon (cpos : points)) .
+      mapM $ \(x, y) ->
+      vertex $ Vertex2 x y
     forM gridLines $ \x ->
       forM gridLines $ \y ->
       drawPoint x y 0.03 (Color4 0.5 0.5 0.5 1)
@@ -40,18 +48,24 @@ toGrid (x, y) =
       (round :: GLfloat -> Int) .
       (* fromIntegral gridRadius)
 
---firstClickPos :: Key -> UI -> Event DrawPos
---firstClickPos key ui =
-  --where
-    --base = ezip' (keyState ui key) (mouseMotionEvent ui)
+atClick :: Key -> Event a -> UI -> Event a
+atClick key event =
+  fmap (fst . snd) .
+  efilter isClick .
+  eWithPrev .
+  fmap (ezip' event) (keyState key)
+  where
+    isClick ((_, Up), (_, Down)) = True
+    isClick _ = False
 
 game :: UI -> Event Image
-game ui =
-  fmap draw .
-  ezip' outlines .
-  fmap toGrid . mouseMotionEvent $ ui
-  where
-    outlines = ereturn []
+game = do
+  mouse <- fmap (fmap toGrid) mouseMotionEvent
+  clicks <- atClick (MouseButton LeftButton) mouse
+  let
+    outline = escanl step [] clicks
+    step xs x = xs ++ [x]
+  return . fmap draw $ ezip' outline mouse
 
 main :: IO ()
 main = do

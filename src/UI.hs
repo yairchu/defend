@@ -21,5 +21,5 @@ eWithPrev =
   fmap f . edrop (2::Int) . escanl step []
   where
     step xs x = x : take 1 xs
-    f l = (head l, l !! 1)
+    f l = (l !! 1, head l)
 

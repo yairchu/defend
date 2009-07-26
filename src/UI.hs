@@ -1,4 +1,6 @@
-module UI where
+module UI (
+  eWithPrev, keyState
+  ) where
 
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
@@ -16,7 +18,7 @@ keyState key ui =
 
 eWithPrev :: Event a -> Event (a, a)
 eWithPrev =
-  fmap f . edrop (1::Int) . escanl step []
+  fmap f . edrop (2::Int) . escanl step []
   where
     step xs x = x : take 1 xs
     f l = (head l, l !! 1)

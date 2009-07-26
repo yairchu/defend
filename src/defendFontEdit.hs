@@ -2,6 +2,7 @@ import Geometry
 import UI
 
 import Control.Monad
+import Data.Monoid
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT
@@ -69,9 +70,16 @@ addPoint (ys : ps) x
 game :: UI -> Event Image
 game = do
   mouse <- fmap (fmap toGrid) mouseMotionEvent
-  clicks <- atClick (MouseButton LeftButton) mouse
+  lClicks <- atClick (MouseButton LeftButton) mouse
+  rClicks <- atClick (MouseButton RightButton) mouse
   let
-    outlines = escanl addPoint [] clicks
+    outlines =
+      escanl step [] $
+      mappend (fmap Left lClicks) (fmap Right rClicks)
+    step cur (Left point) =
+      addPoint cur point
+    step cur (Right point) =
+      filter (not . (elem point)) cur
   return . fmap draw $ ezip' outlines mouse
 
 main :: IO ()

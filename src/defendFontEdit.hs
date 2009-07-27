@@ -79,7 +79,9 @@ game = do
     step cur (Left point) =
       addPoint cur point
     step cur (Right point) =
-      filter (not . (elem point)) cur
+      ([] :) .
+      filter (not . null) .
+      filter (not . (elem point)) $ cur
   return . fmap draw $ ezip' outlines mouse
 
 main :: IO ()

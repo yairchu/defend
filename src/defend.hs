@@ -151,7 +151,7 @@ chooseMove board src (dx, dy) =
       where
         (px, py) = board2screen pos
 
-game :: UI -> Event Image
+game :: UI -> (Event Image, SideEffect)
 game = do
   let
     drag (Down, (x, _)) (Down, c) =
@@ -187,10 +187,11 @@ game = do
       eWithPrev selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
-  fmap draw .
+  image <- fmap draw .
     ezip' board .
     ezip' selection .
     mouseMotionEvent
+  return (image, mempty)
 
 main :: IO ()
 main = do
@@ -199,5 +200,5 @@ main = do
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run game mempty
+  run game
 

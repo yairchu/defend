@@ -92,7 +92,7 @@ typedText =
     m (Char c, _, _, _) = c
     m _ = '#' -- should never get here
 
-game :: UI -> Event Image
+game :: UI -> (Event Image, SideEffect)
 game = do
   mouse <- fmap (fmap toGrid) mouseMotionEvent
   chars <- typedText
@@ -118,9 +118,10 @@ game = do
         func _ =
           ([] :) . filter (not . null) .
           filter (notElem point)
-  return .
-    fmap draw .
-    ezip' font $ textNMouse
+    image =
+      fmap draw .
+      ezip' font $ textNMouse
+  return (image, mempty)
 
 main :: IO ()
 main = do
@@ -129,6 +130,5 @@ main = do
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run game mempty
-
+  run game
 

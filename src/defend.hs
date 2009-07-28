@@ -166,7 +166,7 @@ game = do
   selectionRaw <-
     fmap (edrop (1::Int) .
       escanl drag (Up, undefined)) $
-    liftM2 ezip' (keyState (MouseButton LeftButton)) mouseMotionEvent
+    liftM2 ezip (keyState (MouseButton LeftButton)) mouseMotionEvent
   let
     board = escanl doMove chessStart moves
     procDst brd src = join . fmap (chooseMove brd src)
@@ -176,7 +176,7 @@ game = do
         Just r -> snd r
     selection =
       fmap proc .
-      ezip' board $
+      ezip board $
       fmap snd selectionRaw
       where
         proc (brd, (src, dst)) =
@@ -188,8 +188,8 @@ game = do
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
   image <- fmap draw .
-    ezip' board .
-    ezip' selection .
+    ezip board .
+    ezip selection .
     mouseMotionEvent
   return (image, mempty)
 

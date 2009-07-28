@@ -5,6 +5,7 @@ import Control.Monad
 import Data.Map (Map, findWithDefault, insert)
 import Data.Monoid
 import FRP.Peakachu
+import FRP.Peakachu.Internal (SideEffect(..))
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT
 
@@ -66,7 +67,7 @@ atClick key event =
   fmap (fst . snd) .
   efilter isClick .
   eWithPrev .
-  fmap (ezip' event) (keyState key)
+  fmap (ezip event) (keyState key)
   where
     isClick ((_, Up), (_, Down)) = True
     isClick _ = False
@@ -96,6 +97,7 @@ game :: UI -> (Event Image, SideEffect)
 game = do
   mouse <- fmap (fmap toGrid) mouseMotionEvent
   chars <- typedText
+  keyboard <- glutKeyboardMouseEvent
   let
     text = escanl tstep [] chars
     tstep "" '\DEL' = ""
@@ -103,11 +105,20 @@ game = do
     tstep "" '\b' = ""
     tstep xs '\b' = init xs
     tstep xs x = snoc x xs
-    textNMouse = ezip' text mouse
+    textNMouse = ezip text mouse
     clicks but =
       fmap (fmap ((,) but)) $ atClick (MouseButton but) textNMouse
+    saveLoadFilename key =
+      fmap snd .
+      efilter f .
+      ezip keyboard $ text
+      where
+        f ((Char k, Down, Modifiers Up Up Down, _), _) = k == key
+        f _ = False
+    saveFilename = SideEffect . fmap print $ saveLoadFilename 's'
   lClicks <- clicks LeftButton
   rClicks <- clicks RightButton
+  --saveFilename <- SideEffect . fmap print . saveLoadFilename 's'
   let
     font =
       escanl step mempty $ mappend lClicks rClicks
@@ -120,8 +131,8 @@ game = do
           filter (notElem point)
     image =
       fmap draw .
-      ezip' font $ textNMouse
-  return (image, mempty)
+      ezip font $ textNMouse
+  return (image, saveFilename)
 
 main :: IO ()
 main = do

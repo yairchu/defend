@@ -5,6 +5,7 @@ import UI
 
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
+import Data.Monoid
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT
@@ -198,4 +199,5 @@ main = do
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run game
+  run game mempty
+

@@ -100,6 +100,8 @@ game = do
     text = escanl tstep [] chars
     tstep "" '\DEL' = ""
     tstep xs '\DEL' = init xs
+    tstep "" '\b' = ""
+    tstep xs '\b' = init xs
     tstep xs x = snoc x xs
     textNMouse = ezip' text mouse
     clicks but =
@@ -127,5 +129,6 @@ main = do
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run game
+  run game mempty
+
 

@@ -8,10 +8,11 @@ import Data.Monoid
 import Graphics.UI.GLUT
 
 keyState :: Key -> UI -> Event KeyState
-keyState key ui =
+keyState key =
   mappend (ereturn Up) .
-  fmap m $
-  efilter f (glutKeyboardMouseEvent ui)
+  fmap m .
+  efilter f .
+  glutKeyboardMouseEvent
   where
     m (_, state, _, _) = state
     f (k, _, _, _) = k == key

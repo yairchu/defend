@@ -34,6 +34,6 @@ Executable defendFontEdit
   Executable:        defendFontEdit
   HS-Source-Dirs:    src
   Main-IS:           defendFontEdit.hs
-  Build-Depends:     base >=2 && < 5, peakachu, GLUT
+  Build-Depends:     base >=2 && < 5, peakachu, GLUT, containers
   GHC-Options:       -O2 -Wall
 

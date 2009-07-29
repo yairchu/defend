@@ -32,8 +32,7 @@ draw (font, (text, cpos@(cx, cy))) =
         map (expandPolygon (-0.01)) .
         triangulatePolygon
         ) poly) .
-      mapM $ \(x, y) -> do
-      print (x, y)
+      mapM $ \(x, y) ->
       vertex $ Vertex2 x y
     forM gridLines $ \x ->
       forM gridLines $ \y ->

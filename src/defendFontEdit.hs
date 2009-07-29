@@ -5,7 +5,7 @@ import Control.Monad
 import Data.Map (Map, findWithDefault, insert)
 import Data.Monoid
 import FRP.Peakachu
-import FRP.Peakachu.Internal (SideEffect(..))
+import FRP.Peakachu.Backend.File
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT
 
@@ -62,15 +62,36 @@ toGrid (x, y) =
       (round :: GLfloat -> Int) .
       (* fromIntegral gridRadius)
 
-atClick :: Key -> Event a -> UI -> Event a
-atClick key event =
-  fmap (fst . snd) .
-  efilter isClick .
+eZipFstTimes :: Event a -> Event b -> Event (a, b)
+eZipFstTimes primary other =
+  fmap m .
+  efilter f .
   eWithPrev .
-  fmap (ezip event) (keyState key)
+  (`ezip` other) .
+  escanl step Nothing $ primary
   where
-    isClick ((_, Up), (_, Down)) = True
-    isClick _ = False
+    step Nothing x = Just (False, x)
+    step (Just (b, _)) y = Just (not b, y)
+    f ((Just (x, _), _), (Just (y, _), _)) = x /= y
+    f ((Nothing, _), (Just _, _)) = True
+    f _ = False
+    m (_, (bx, y)) =
+      (x, y)
+      where
+        Just (_, x) = bx
+
+atPress :: Key -> Modifiers -> Event a -> UI -> Event a
+atPress key modi event =
+  fmap snd .
+  (`eZipFstTimes` event) .
+  efilter f .
+  glutKeyboardMouseEvent
+  where
+    f (k, Down, m, _) = k == key && m == modi
+    f _ = False
+
+noMods :: Modifiers
+noMods = Modifiers Up Up Up
 
 snoc :: a -> [a] -> [a]
 snoc x xs = xs ++ [x]
@@ -97,7 +118,6 @@ game :: UI -> (Event Image, SideEffect)
 game = do
   mouse <- fmap (fmap toGrid) mouseMotionEvent
   chars <- typedText
-  keyboard <- glutKeyboardMouseEvent
   let
     text = escanl tstep [] chars
     tstep "" '\DEL' = ""
@@ -107,32 +127,37 @@ game = do
     tstep xs x = snoc x xs
     textNMouse = ezip text mouse
     clicks but =
-      fmap (fmap ((,) but)) $ atClick (MouseButton but) textNMouse
-    saveLoadFilename key =
-      fmap snd .
-      efilter f .
-      ezip keyboard $ text
-      where
-        f ((Char k, Down, Modifiers Up Up Down, _), _) = k == key
-        f _ = False
-    saveFilename = SideEffect . fmap print $ saveLoadFilename 's'
+      fmap (fmap ((,) but)) $ atPress (MouseButton but) noMods textNMouse
+    filename = fmap (++ ".font") text
+    altMod = Modifiers Up Up Down -- ctrl doesn't seem to work
   lClicks <- clicks LeftButton
   rClicks <- clicks RightButton
-  --saveFilename <- SideEffect . fmap print . saveLoadFilename 's'
+  load <-
+    fmap (fmap read . readFileE) .
+    atPress (Char 'l') altMod $ filename
   let
     font =
-      escanl step mempty $ mappend lClicks rClicks
-    step cur (but, (key, point)) =
+      escanl step mempty .
+      mappend (fmap Left load) .
+      fmap Right .
+      mappend lClicks $ rClicks
+    step cur (Right (but, (key, point))) =
       adjustWithDef (func but) key cur
       where
         func LeftButton = (`addPoint` point)
         func _ =
           ([] :) . filter (not . null) .
           filter (notElem point)
+    step _ (Left x) = x
     image =
       fmap draw .
       ezip font $ textNMouse
-  return (image, saveFilename)
+  save <-
+    fmap writeFileE .
+    atPress (Char 's') altMod .
+    ezip filename $
+    fmap show font
+  return (image, save)
 
 main :: IO ()
 main = do

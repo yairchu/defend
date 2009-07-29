@@ -1,14 +1,20 @@
 import Chess
-import ChessFont
+import Font
+import Paths_DefendTheKing (getDataFileName)
 import Geometry
 import UI
 
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
+import Data.Char (toLower)
+import Data.Map ((!))
 import Data.Monoid
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT
+
+piecePix :: DefendFont -> PieceType -> Pix
+piecePix font x = font ! map toLower (show x)
 
 screen2board :: DrawPos -> BoardPos
 screen2board (cx, cy) =
@@ -24,8 +30,8 @@ board2screen (bx, by) =
 
 type Selection = (BoardPos, Maybe BoardPos)
 
-draw :: (Board, (Selection, DrawPos)) -> Image
-draw (board, ((dragSrc, dragDst), (cx, cy))) =
+draw :: DefendFont -> (Board, (Selection, DrawPos)) -> Image
+draw font (board, ((dragSrc, dragDst), (cx, cy))) =
   Image $ do
     cursor $= None
     lineSmooth $= Enabled
@@ -51,7 +57,7 @@ draw (board, ((dragSrc, dragDst), (cx, cy))) =
     headingUp = normal $ Normal3 0 0 (-1 :: GLfloat)
     drawPiece piece = do
       let
-        pix = piecePix (pieceType piece)
+        pix = piecePix font (pieceType piece)
         (px, py) = piecePos piece
         (sx, sy) = board2screen (px, py)
         white :: Color4 GLfloat
@@ -126,7 +132,7 @@ draw (board, ((dragSrc, dragDst), (cx, cy))) =
     curPix =
       case pieceUnderCursor of
         Nothing -> [square]
-        Just p -> map (map t) . pixOutline . piecePix $ pieceType p
+        Just p -> map (map t) . pixOutline . piecePix font $ pieceType p
       where
         t (x, y) = (pieceSize*x, pieceSize*y)
     square = [((-1), (-1)), ((-1), 1), (1, 1), (1, (-1))]
@@ -151,8 +157,8 @@ chooseMove board src (dx, dy) =
       where
         (px, py) = board2screen pos
 
-game :: UI -> (Event Image, SideEffect)
-game = do
+game :: DefendFont -> UI -> (Event Image, SideEffect)
+game font = do
   let
     drag (Down, (x, _)) (Down, c) =
       (Down, (x, Just c))
@@ -187,7 +193,7 @@ game = do
       eWithPrev selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
-  image <- fmap draw .
+  image <- fmap (draw font) .
     ezip board .
     ezip selection .
     mouseMotionEvent
@@ -195,10 +201,11 @@ game = do
 
 main :: IO ()
 main = do
+  font <- fmap loadFont . readFile =<< getDataFileName "data/defend.font"
   initialWindowSize $= Size 600 600
   initialDisplayCapabilities $=
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run game
+  run (game font)
 

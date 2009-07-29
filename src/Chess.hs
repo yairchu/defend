@@ -9,7 +9,7 @@ import Prelude hiding (all, any, null)
 
 data PieceType =
   Pawn | Knight | Bishop | Rook | Queen | King
-  deriving Eq
+  deriving (Eq, Show)
 
 type BoardPos = (Integer, Integer)
 

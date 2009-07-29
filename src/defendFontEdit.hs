@@ -27,8 +27,13 @@ draw (font, (text, cpos@(cx, cy))) =
     color $ Color4 0.1 0.3 0.1 (1 :: GLfloat)
     renderPrimitive Triangles .
       forM (addPoint polygons cpos) $ \poly ->
-      forM (map (expandPolygon (-0.01)) (triangulatePolygon poly)) .
-      mapM $ \(x, y) ->
+      forM ((
+        filter ((== 3) . length) .
+        map (expandPolygon (-0.01)) .
+        triangulatePolygon
+        ) poly) .
+      mapM $ \(x, y) -> do
+      print (x, y)
       vertex $ Vertex2 x y
     forM gridLines $ \x ->
       forM gridLines $ \y ->

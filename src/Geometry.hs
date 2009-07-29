@@ -114,7 +114,7 @@ triangulatePolygon points
         let
           (abc@[a, _, c], rest) = splitAt 3 ear
         in
-          (filter ((> 0) . twicePolygonArea) [abc])
+          filter ((> 0) . twicePolygonArea) [abc]
           ++ triangulatePolygon ([a, c] ++ rest)
   where
     ears = filter isEar $ listRotations points

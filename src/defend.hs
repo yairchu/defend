@@ -164,8 +164,8 @@ game = do
           | s == Up = Nothing
           | otherwise = Just c
   selectionRaw <-
-    fmap (edrop (1::Int) .
-      escanl drag (Up, undefined)) $
+    edrop (1::Int) .
+    escanl drag (Up, undefined) .
     liftM2 ezip (keyState (MouseButton LeftButton)) mouseMotionEvent
   let
     board = escanl doMove chessStart moves

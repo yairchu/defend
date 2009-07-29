@@ -137,8 +137,8 @@ game = do
   lClicks <- clicks LeftButton
   rClicks <- clicks RightButton
   load <-
-    fmap (fmap read . readFileE) .
-    atPress (Char 'l') altMod $ filename
+    fmap read . readFileE .
+    atPress (Char 'l') altMod filename
   let
     font =
       escanl step mempty .
@@ -157,10 +157,9 @@ game = do
       fmap draw .
       ezip font $ textNMouse
   save <-
-    fmap writeFileE .
-    atPress (Char 's') altMod .
-    ezip filename $
-    fmap show font
+    writeFileE .
+    atPress (Char 's') altMod
+    (ezip filename (fmap show font))
   return (image, save)
 
 main :: IO ()

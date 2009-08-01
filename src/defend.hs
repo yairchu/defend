@@ -32,15 +32,19 @@ board2screen (bx, by) =
 
 type Selection = (BoardPos, Maybe BoardPos)
 
+glStyle :: IO ()
+glStyle = do
+  cursor $= None
+  lineSmooth $= Enabled
+  polygonSmooth $= Enabled
+  hint LineSmooth $= Nicest
+  hint PolygonSmooth $= Nicest
+  blend $= Enabled
+
 draw :: DefendFont -> (Board, (Selection, DrawPos)) -> Image
 draw font (board, ((dragSrc, dragDst), (cx, cy))) =
   Image $ do
-    cursor $= None
-    lineSmooth $= Enabled
-    polygonSmooth $= Enabled
-    hint LineSmooth $= Nicest
-    hint PolygonSmooth $= Nicest
-    blend $= Enabled
+    glStyle
     blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
     lighting $= Enabled
     light (Light 0) $= Enabled
@@ -229,26 +233,29 @@ renderText font text =
     rowHeights = map ((2 /) . fromIntegral . length) lns
     top = sum rowHeights / 2
     rowTops = scanl (-) top rowHeights
-    rowCenters = zipWith ((+) . (/ 2)) rowHeights rowTops
+    rowCenters = zipWith (flip (-) . (/ 2)) rowHeights rowTops
     doLine line (mid, size) =
       concat $ zipWith doLetter [(0 :: Int) ..] line
       where
-      doLetter _ ' ' = []
-      doLetter off letter =
-        map (map (trans size (size * fromIntegral (2 * off + 1 - length line) / 2, mid))) . pixBody $ font ! [letter]
+        doLetter _ ' ' = []
+        doLetter off letter =
+          map (map (trans size (size * fromIntegral (2 * off + 1 - length line) / 2, mid))) . pixBody $ font ! [letter]
     trans s (dx, dy) (sx, sy) = (dx+s*sx/2, dy+s*sy/2)
 
 intro :: DefendFont -> UI -> (Event Image, SideEffect)
 intro font = do
   let
     frame t =
-      Image .
-      renderPrimitive Triangles .
-      forM_ (concat (renderText font "defend\nthe king\nfrom forces\nof different")) $ \(x, y) ->
-        vertex $ Vertex4 x y 0 z
+      Image $ do
+        glStyle
+        blendFunc $= (SrcAlpha, One)
+        color $ Color4 1 0.5 0.25 (0.5+f*0.02)
+        renderPrimitive Triangles .
+          forM_ ((concat . map (expandPolygon (f/100-0.1))) (renderText font "defend\nthe king\nfrom forces\nof different")) $ \(x, y) ->
+            vertex $ Vertex4 x y 0 (3-f/5)
       where
-        z :: GLfloat
-        z = realToFrac t
+        f :: GLfloat
+        f = realToFrac t
   image <-
     fmap frame .
     relTimeOf .

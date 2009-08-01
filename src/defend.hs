@@ -9,8 +9,10 @@ import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
 import Data.Map ((!))
 import Data.Monoid
+import Data.Time.Clock
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
+import FRP.Peakachu.Backend.Time
 import Graphics.UI.GLUT
 
 piecePix :: DefendFont -> PieceType -> Pix
@@ -193,11 +195,77 @@ game font = do
       eWithPrev selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
-  image <- fmap (draw font) .
+  image <-
+    fmap (draw font) .
     ezip board .
     ezip selection .
     mouseMotionEvent
   return (image, mempty)
+
+zipRelTime :: Event a -> Event (NominalDiffTime, a)
+zipRelTime =
+  fmap f .
+  edrop (1 :: Int) .
+  escanl step Nothing .
+  zipTime
+  where
+    step Nothing (startTime, x) =
+      Just (startTime, startTime, x)
+    step (Just (startTime, _, _)) (now, x) =
+      Just (startTime, now, x)
+    f v =
+      (diffUTCTime now startTime, x)
+      where
+        Just (startTime, now, x) = v
+
+relTimeOf :: Event a -> Event NominalDiffTime
+relTimeOf = fmap fst . zipRelTime
+
+renderText :: DefendFont -> String -> [[DrawPos]]
+renderText font text =
+  concat . zipWith doLine lns $ zip rowCenters rowHeights
+  where
+    lns = lines text
+    rowHeights = map ((2 /) . fromIntegral . length) lns
+    top = sum rowHeights / 2
+    rowTops = scanl (-) top rowHeights
+    rowCenters = zipWith ((+) . (/ 2)) rowHeights rowTops
+    doLine line (mid, size) =
+      concat $ zipWith doLetter [(0 :: Int) ..] line
+      where
+      doLetter _ ' ' = []
+      doLetter off letter =
+        map (map (trans size (size * fromIntegral (2 * off + 1 - length line) / 2, mid))) . pixBody $ font ! [letter]
+    trans s (dx, dy) (sx, sy) = (dx+s*sx/2, dy+s*sy/2)
+
+intro :: DefendFont -> UI -> (Event Image, SideEffect)
+intro font = do
+  let
+    frame t =
+      Image .
+      renderPrimitive Triangles .
+      forM_ (concat (renderText font "defend\nthe king\nfrom forces\nof different")) $ \(x, y) ->
+        vertex $ Vertex4 x y 0 z
+      where
+        z :: GLfloat
+        z = realToFrac t
+  image <-
+    fmap frame .
+    relTimeOf .
+    glutIdleEvent
+  return (image, mempty)
+
+eSplitAfter :: NominalDiffTime -> Event a -> (Event a, Event a)
+eSplitAfter timeDiff event = do
+  (f (>), f (<=))
+  where
+    f c = fmap snd . efilter (c timeDiff . fst) . zipRelTime $ event
+
+prog :: DefendFont -> UI -> (Event Image, SideEffect)
+prog font ui =
+  intro font a `mappend` game font b
+  where
+    (a, b) = eSplitAfter 10 ui
 
 main :: IO ()
 main = do
@@ -207,5 +275,5 @@ main = do
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run (game font)
+  run (prog font)
 

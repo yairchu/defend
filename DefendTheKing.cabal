@@ -27,7 +27,7 @@ Executable defend
   HS-Source-Dirs:    src
   Main-IS:           defend.hs
   Other-Modules:     Chess, Font, Geometry, UI
-  Build-Depends:     base >=2 && < 5, peakachu, GLUT
+  Build-Depends:     base >=2 && < 5, peakachu, GLUT, containers, time
   GHC-Options:       -O2 -Wall
 Executable defendFontEdit
   Executable:        defendFontEdit

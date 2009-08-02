@@ -9,7 +9,9 @@ import Graphics.UI.GLUT
 
 keyState :: Key -> UI -> Event KeyState
 keyState key =
-  mappend (ereturn Up) .
+  runEventMerge .
+  mappend (EventMerge (ereturn Up)) .
+  EventMerge .
   fmap m .
   efilter f .
   glutKeyboardMouseEvent

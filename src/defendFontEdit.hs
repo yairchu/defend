@@ -142,9 +142,10 @@ game = do
   let
     font =
       escanl step mempty .
-      mappend (fmap Left load) .
-      fmap Right .
-      mappend lClicks $ rClicks
+      runEventMerge .
+      mappend (EventMerge (fmap Left load)) .
+      fmap Right $
+      mappend (EventMerge lClicks) (EventMerge rClicks)
     step cur (Right (but, (key, point))) =
       adjustWithDef (func but) key cur
       where

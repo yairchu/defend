@@ -5,6 +5,7 @@ import GameLogic
 import Geometry
 import UI
 
+import Control.Arrow (first)
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
@@ -276,7 +277,8 @@ eSplitAfter timeDiff event =
 
 prog :: DefendFont -> UI -> (Event Image, SideEffect)
 prog font ui =
-  intro font a `mappend` game font b
+  first runEventMerge $
+  first EventMerge (intro font a) `mappend` first EventMerge (game font b)
   where
     (a, b) = eSplitAfter 10 ui
 

@@ -8,6 +8,7 @@ import UI
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
+import Data.List.Class (filter)
 import Data.Map ((!))
 import Data.Monoid
 import Data.Time.Clock
@@ -15,6 +16,8 @@ import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import FRP.Peakachu.Backend.Time
 import Graphics.UI.GLUT
+
+import Prelude hiding (filter)
 
 piecePix :: DefendFont -> PieceType -> Pix
 piecePix font x = font ! map toLower (show x)
@@ -135,7 +138,9 @@ draw font (board, ((dragSrc, dragDst), (cx, cy))) =
             _ -> Color4 0 1 0 0.5
         forM_ (tail points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
-    pieceUnderCursor = pieceAt board dragSrc
+    pieceUnderCursor =
+      filter ((== White) . pieceSide) $
+      pieceAt board dragSrc
     curPix =
       case pieceUnderCursor of
         Nothing -> [square]
@@ -252,8 +257,8 @@ intro font = do
         blendFunc $= (SrcAlpha, One)
         color $ Color4 1 0.5 0.25 (0.5+f*0.02)
         renderPrimitive Triangles .
-          forM_ ((concatMap (expandPolygon (f/100-0.1))) (renderText font "defend\nthe king\nfrom forces\nof different")) $ \(x, y) ->
-            vertex $ Vertex4 x y 0 (3-f/5)
+          forM_ (expandPolygon (f/100-0.1) =<< renderText font "defend\nthe king\nfrom forces\nof different") $ \(x, y) ->
+            vertex $ Vertex4 x y 0 1 -- (3-f/5)
       where
         f :: GLfloat
         f = realToFrac t

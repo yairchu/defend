@@ -1,6 +1,7 @@
+import Paths_DefendTheKing (getDataFileName)
 import Chess
 import Font
-import Paths_DefendTheKing (getDataFileName)
+import GameLogic
 import Geometry
 import UI
 
@@ -51,7 +52,7 @@ draw font (board, ((dragSrc, dragDst), (cx, cy))) =
     position (Light 0) $= Vertex4 0 0 (-1) 0
     cullFace $= Just Front
     drawBoard
-    forM_ (boardPieces board) drawPiece
+    mapM_ drawPiece . filter ((`elem` vis) . piecePos) $ boardPieces board
     when (srcFirst dragDst) $ drawCursor dragSrc
     forM_ dragDst drawCursor
     unless (srcFirst dragDst) $ drawCursor dragSrc
@@ -89,11 +90,11 @@ draw font (board, ((dragSrc, dragDst), (cx, cy))) =
           \((a, b), (c, d)) ->
           forM [c, d, b, a] . vert $ pieceSize * 0.125
     pieceSize = 0.9
+    vis = visibleSquares White board
     drawBoard =
-      forM_ [0..7] $ \bx ->
-      forM_ [0..7] $ \by -> do
+      forM_ vis $ \(bx, by) -> do
         let
-          col = 0.3 + 0.1 * fromIntegral ((bx + by) `mod` (2::Int))
+          col = 0.3 + 0.1 * fromIntegral ((bx + by) `mod` 2)
           r ba va = 0.125*((fromIntegral ba*2+va)-7)
         materialDiffuse Front $= Color4 col col col 1
         headingUp
@@ -251,7 +252,7 @@ intro font = do
         blendFunc $= (SrcAlpha, One)
         color $ Color4 1 0.5 0.25 (0.5+f*0.02)
         renderPrimitive Triangles .
-          forM_ ((concat . map (expandPolygon (f/100-0.1))) (renderText font "defend\nthe king\nfrom forces\nof different")) $ \(x, y) ->
+          forM_ ((concatMap (expandPolygon (f/100-0.1))) (renderText font "defend\nthe king\nfrom forces\nof different")) $ \(x, y) ->
             vertex $ Vertex4 x y 0 (3-f/5)
       where
         f :: GLfloat
@@ -263,7 +264,7 @@ intro font = do
   return (image, mempty)
 
 eSplitAfter :: NominalDiffTime -> Event a -> (Event a, Event a)
-eSplitAfter timeDiff event = do
+eSplitAfter timeDiff event =
   (f (>), f (<=))
   where
     f c = fmap snd . efilter (c timeDiff . fst) . zipRelTime $ event

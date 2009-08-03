@@ -5,7 +5,6 @@ import GameLogic
 import Geometry
 import UI
 
-import Control.Arrow (first)
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
@@ -170,7 +169,7 @@ chooseMove board src (dx, dy) =
       where
         (px, py) = board2screen pos
 
-game :: DefendFont -> UI -> (Event Image, SideEffect)
+game :: DefendFont -> UI -> Event Image
 game font = do
   let
     drag (Down, (x, _)) (Down, c) =
@@ -206,12 +205,10 @@ game font = do
       eWithPrev selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
-  image <-
-    fmap (draw font) .
+  fmap (draw font) .
     ezip board .
     ezip selection .
     mouseMotionEvent
-  return (image, mempty)
 
 zipRelTime :: Event a -> Event (NominalDiffTime, a)
 zipRelTime =
@@ -249,25 +246,29 @@ renderText font text =
           map (map (trans size (size * fromIntegral (2 * off + 1 - length line) / 2, mid))) . pixBody $ font ! [letter]
     trans s (dx, dy) (sx, sy) = (dx+s*sx/2, dy+s*sy/2)
 
-intro :: DefendFont -> UI -> (Event Image, SideEffect)
+intro :: DefendFont -> UI -> Event Image
 intro font = do
   let
     frame t =
       Image $ do
         glStyle
+        lighting $= Disabled
+        blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
+        color $ Color4 0 0 0 (max 0 (4-f*0.3))
+        renderPrimitive Quads .
+          forM_ [(-1, -1), (-1, 1), (1, 1), (1, -1)] $ \(x, y) ->
+            vertex $ Vertex4 x y (0 :: Float) 1
         blendFunc $= (SrcAlpha, One)
-        color $ Color4 1 0.5 0.25 (0.5+f*0.02)
+        color $ Color4 1 0.5 0.25 (1 - abs (0.5+f*0.1-1))
         renderPrimitive Triangles .
           forM_ (expandPolygon (f/100-0.1) =<< renderText font "defend\nthe king\nfrom forces\nof different") $ \(x, y) ->
-            vertex $ Vertex4 x y 0 1 -- (3-f/5)
+            vertex $ Vertex4 x y 0 (3-f/5)
       where
         f :: GLfloat
         f = realToFrac t
-  image <-
-    fmap frame .
+  fmap frame .
     relTimeOf .
     glutIdleEvent
-  return (image, mempty)
 
 eSplitAfter :: NominalDiffTime -> Event a -> (Event a, Event a)
 eSplitAfter timeDiff event =
@@ -277,10 +278,9 @@ eSplitAfter timeDiff event =
 
 prog :: DefendFont -> UI -> (Event Image, SideEffect)
 prog font ui =
-  first runEventMerge $
-  first EventMerge (intro font a) `mappend` first EventMerge (game font b)
-  where
-    (a, b) = eSplitAfter 10 ui
+  ( runEventZip
+    (EventZip (game font ui) `mappend` EventZip (intro font ui))
+  , mempty)
 
 main :: IO ()
 main = do

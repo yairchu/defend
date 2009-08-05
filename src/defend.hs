@@ -261,20 +261,16 @@ intro font = do
         blendFunc $= (SrcAlpha, One)
         color $ Color4 1 0.5 0.25 (1 - abs (0.5+f*0.1-1))
         renderPrimitive Triangles .
-          forM_ (expandPolygon (f/100-0.1) =<< renderText font "defend\nthe king\nfrom forces\nof different") $ \(x, y) ->
+          forM_ (expandPolygon e =<< renderText font "defend\nthe king\nfrom forces\nof different") $ \(x, y) ->
             vertex $ Vertex4 x y 0 (3-f/5)
       where
         f :: GLfloat
         f = realToFrac t
+        e' = f/90-0.1
+        e = min e' 0 + max (e'-0.02) 0
   fmap frame .
     relTimeOf .
     glutIdleEvent
-
-eSplitAfter :: NominalDiffTime -> Event a -> (Event a, Event a)
-eSplitAfter timeDiff event =
-  (f (>), f (<=))
-  where
-    f c = fmap snd . efilter (c timeDiff . fst) . zipRelTime $ event
 
 prog :: DefendFont -> UI -> (Event Image, SideEffect)
 prog font ui =

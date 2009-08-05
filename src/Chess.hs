@@ -3,7 +3,7 @@ module Chess (
   chessStart, pieceAt, possibleMoves
   ) where
 
-import Control.Monad (guard, forM)
+import Control.Monad (guard)
 import Data.Foldable (Foldable, all, any, toList)
 import Prelude hiding (all, any, null)
 
@@ -38,7 +38,7 @@ chessStart =
     boardLastMove = Nothing
   }
   where
-    headRowTypes = [Rook, Knight, Bishop, King, Queen, Bishop, Knight, Rook]
+    headRowTypes = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook]
     headRowItems x t = do
       (col, row) <- [(White, 0), (Black, 7)]
       return $ Piece col t (x, row) False
@@ -88,7 +88,7 @@ possibleMoves board piece =
         takeWhile notBlocked $
         map (addPos src) relRay
       return $ simpleMove dst
-    src = piecePos piece
+    src@(srcX, _) = piecePos piece
     move updPiece clearPos dst =
       (dst, newBoard)
       where
@@ -141,6 +141,7 @@ possibleMoves board piece =
             prevPos@(_, py) = piecePos lpiece
     otherMoves King = do
       guard . not $ pieceMoved piece
+      (rookX, direction) <- [(0, -1), (7, 1)]
       let
         dangerZone =
           map fst $
@@ -149,20 +150,21 @@ possibleMoves board piece =
         isDanger p =
           pieceSide p /= pieceSide piece &&
           (pieceMoved p || pieceType p /= King)
-      (rookX, kingDstX, rookDstX, clearPath, safePath) <-
-        [(0, 1, 2, [1, 2], [3]), (7, 5, 4, [4..6], [3, 4])]
-      let rookPos = (rookX, sy)
-      rook <- toList $ pieceAt board rookPos
-      forM clearPath $ \x ->
-        guard . null $ pieceAt board (x, sy)
-      forM safePath $ \x ->
-        guard . not $ (x, sy) `elem` dangerZone
-      guard $ Rook == pieceType rook
-      guard . not $ pieceMoved rook
-      let
+        rookDstX = srcX + direction
+        kingDstX = srcX + 2*direction
+        putInRow x = (x, sy)
+        clearPath = map putInRow [srcX + direction, srcX + direction*2 .. rookX - direction]
+        safePath = map putInRow [srcX, srcX + direction]
+        rookPos = (rookX, sy)
         kingDst = (kingDstX, sy)
         newKingState =
           piece { piecePos = kingDst, pieceMoved = True }
+      rook <- toList $ pieceAt board rookPos
+      guard $ Rook == pieceType rook
+      guard . not . pieceMoved $ rook
+      guard . all (null . pieceAt board) $ clearPath
+      guard . all (`notElem` dangerZone) $ safePath
+      let
         newRookState =
           rook { piecePos = (rookDstX, sy), pieceMoved = True }
         newBoard =

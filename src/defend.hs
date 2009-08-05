@@ -5,6 +5,7 @@ import GameLogic
 import Geometry
 import UI
 
+import Control.Applicative ((<$))
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
@@ -247,8 +248,9 @@ renderText font text =
     trans s (dx, dy) (sx, sy) = (dx+s*sx/2, dy+s*sy/2)
 
 intro :: DefendFont -> UI -> Event Image
-intro font = do
-  let
+intro font =
+  fmap frame . relTimeOf
+  where
     frame t =
       Image $ do
         glStyle
@@ -265,18 +267,47 @@ intro font = do
             vertex $ Vertex4 x y 0 (3-f/5)
       where
         f :: GLfloat
-        f = realToFrac t
+        f = 5 * realToFrac t
         e' = f/90-0.1
         e = min e' 0 + max (e'-0.02) 0
-  fmap frame .
-    relTimeOf .
-    glutIdleEvent
+
+eZipByFst :: Event a -> Event b -> Event (a, b)
+eZipByFst ea eb =
+  eMapMaybe f .
+  escanl step (True, Nothing, Nothing) .
+  runEventMerge $
+  EventMerge (fmap Left ea) `mappend`
+  EventMerge (fmap Right eb)
+  where
+    step (_, _, vb) (Left va) = (True, Just va, vb)
+    step (_, va, _) (Right vb) = (False, va, Just vb)
+    f (True, Just va, Just vb) = Just (va, vb)
+    f _ = Nothing
+
+drawingTime :: UI -> Event ()
+drawingTime =
+  (() <$) .
+  efilter fst .
+  escanl step (False, 0) .
+  zipRelTime
+  where
+    framePerAtLeast = 0.1
+    step _ (now, IdleEvent) = (True, now)
+    step (_, prev) (now, _)
+      | now - prev >= framePerAtLeast = (True, now)
+      | otherwise = (False, prev)
 
 prog :: DefendFont -> UI -> (Event Image, SideEffect)
 prog font ui =
-  ( runEventZip
-    (EventZip (game font ui) `mappend` EventZip (intro font ui))
-  , mempty)
+  (imageSamp, mempty)
+  where
+    image =
+      runEventZip $
+      EventZip (game font ui) `mappend`
+      EventZip (intro font ui)
+    imageSamp =
+      fmap snd $
+      eZipByFst (drawingTime ui) image
 
 main :: IO ()
 main = do

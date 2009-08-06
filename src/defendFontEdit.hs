@@ -118,8 +118,8 @@ typedText =
     m (Char c, _, _, _) = c
     m _ = '#' -- should never get here
 
-game :: UI -> (Event Image, SideEffect)
-game = do
+game :: EffectfulFunc FilePath String () -> UI -> (Event Image, SideEffect)
+game (doReadFile, theReadFile) = do
   mouse <- fmap (fmap toGrid) mouseMotionEvent
   chars <- typedText
   let
@@ -136,14 +136,11 @@ game = do
     altMod = Modifiers Up Up Down -- ctrl doesn't seem to work
   lClicks <- clicks LeftButton
   rClicks <- clicks RightButton
-  load <-
-    fmap read . readFileE .
-    atPress (Char 'l') altMod filename
   let
     font =
       escanl step mempty .
       runEventMerge .
-      mappend (EventMerge (fmap Left load)) .
+      mappend (EventMerge (fmap (Left . read . fst) theReadFile)) .
       fmap Right $
       mappend (EventMerge lClicks) (EventMerge rClicks)
     step cur (Right (but, (key, point))) =
@@ -157,11 +154,14 @@ game = do
     image =
       fmap draw .
       ezip font $ textNMouse
+  doLoad <-
+    doReadFile . fmap (flip (,) ()) .
+    atPress (Char 'l') altMod filename
   save <-
     writeFileE .
     atPress (Char 's') altMod
     (ezip filename (fmap show font))
-  return (image, save)
+  return (image, save `mappend` doLoad)
 
 main :: IO ()
 main = do
@@ -170,5 +170,5 @@ main = do
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run game
+  run . game =<< readFileE
 

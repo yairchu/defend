@@ -271,19 +271,6 @@ intro font =
         e' = f/90-0.1
         e = min e' 0 + max (e'-0.02) 0
 
-eZipByFst :: Event a -> Event b -> Event (a, b)
-eZipByFst ea eb =
-  eMapMaybe f .
-  escanl step (True, Nothing, Nothing) .
-  runEventMerge $
-  EventMerge (fmap Left ea) `mappend`
-  EventMerge (fmap Right eb)
-  where
-    step (_, _, vb) (Left va) = (True, Just va, vb)
-    step (_, va, _) (Right vb) = (False, va, Just vb)
-    f (True, Just va, Just vb) = Just (va, vb)
-    f _ = Nothing
-
 drawingTime :: UI -> Event ()
 drawingTime =
   (() <$) .

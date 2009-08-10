@@ -15,7 +15,7 @@ import Control.Monad.Writer (execWriterT, tell)
 import Control.Monad.Trans (lift)
 import Data.Binary.Get (
   Get, bytesRead, getLazyByteString,
-  getWord8, getWord16be, getWord32be, getWord32le,
+  getWord8, getWord16be, getWord16le, getWord32be, getWord32le,
   remaining, runGet, skip)
 import Data.Bits (xor)
 import Data.ByteString.Lazy (ByteString, pack, unpack)
@@ -83,7 +83,7 @@ parseStun src =
             liftGet $ skip 1
             adFamily <- liftGet getWord8
             failIf $ 1 /= adFamily
-            adPort <- liftGet getWord16be
+            adPort <- liftGet getWord16le
             adHost <- liftGet getWord32le
             return $ SockAddrInet (PortNum adPort) adHost
           readString = liftGet $ getString attrSize
@@ -125,8 +125,8 @@ getRealMappedAddress msg =
     fXor (StunXorMappedAddress (SockAddrInet (PortNum xPort) xHost)) =
       Just $ SockAddrInet (PortNum port) host
       where
-        port = flipEndian 2 xPort `xor` fromIntegral (magic `div` 0x10000)
-        host = flipEndian 4 magic `xor` xHost
+        port = xPort `xor` flipEndian 2 (fromIntegral (magic `div` 0x10000))
+        host = xHost `xor` flipEndian 4 magic
     fXor _ = Nothing
     fMap (StunMappedAddress x) = Just x
     fMap _ = Nothing

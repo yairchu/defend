@@ -15,7 +15,7 @@ import Control.Monad.Writer (execWriterT, tell)
 import Control.Monad.Trans (lift)
 import Data.Binary.Get (
   Get, bytesRead, getLazyByteString,
-  getWord8, getWord16be, getWord32be,
+  getWord8, getWord16be, getWord32be, getWord32le,
   remaining, runGet, skip)
 import Data.Bits (xor)
 import Data.ByteString.Lazy (ByteString, pack, unpack)
@@ -84,7 +84,7 @@ parseStun src =
             adFamily <- liftGet getWord8
             failIf $ 1 /= adFamily
             adPort <- liftGet getWord16be
-            adHost <- liftGet getWord32be
+            adHost <- liftGet getWord32le
             return $ SockAddrInet (PortNum adPort) adHost
           readString = liftGet $ getString attrSize
         tell . return =<< case attrType of
@@ -103,16 +103,16 @@ littleEndianDigits :: Integral i => i -> i -> [i]
 littleEndianDigits base =
   map (`mod` base) . iterate (`div` base)
 
-fromLittleEndianDigits :: Integral i => i -> [i] -> i
-fromLittleEndianDigits base =
+fromBigEndianDigits :: Integral i => i -> [i] -> i
+fromBigEndianDigits base =
   foldl step 0
   where
     step res x = res * base + x
 
 flipEndian :: Integral i => Int -> i -> i
 flipEndian numBytes =
-  fromLittleEndianDigits 256 .
-  reverse . take numBytes .
+  fromBigEndianDigits 256 .
+  take numBytes .
   littleEndianDigits 256
 
 getRealMappedAddress :: StunMessage -> Maybe SockAddr
@@ -126,7 +126,7 @@ getRealMappedAddress msg =
       Just $ SockAddrInet (PortNum port) host
       where
         port = flipEndian 2 xPort `xor` fromIntegral (magic `div` 0x10000)
-        host = flipEndian 4 xHost `xor` magic
+        host = flipEndian 4 magic `xor` xHost
     fXor _ = Nothing
     fMap (StunMappedAddress x) = Just x
     fMap _ = Nothing

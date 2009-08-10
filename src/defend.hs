@@ -5,7 +5,6 @@ import GameLogic
 import Geometry
 import UI
 
-import Control.Applicative ((<$))
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
@@ -271,19 +270,6 @@ intro font =
         e' = f/90-0.1
         e = min e' 0 + max (e'-0.02) 0
 
-drawingTime :: UI -> Event ()
-drawingTime =
-  (() <$) .
-  efilter fst .
-  escanl step (False, 0) .
-  zipRelTime
-  where
-    framePerAtLeast = 0.1
-    step _ (now, IdleEvent) = (True, now)
-    step (_, prev) (now, _)
-      | now - prev >= framePerAtLeast = (True, now)
-      | otherwise = (False, prev)
-
 prog :: DefendFont -> UI -> (Event Image, SideEffect)
 prog font ui =
   (imageSamp, mempty)
@@ -294,7 +280,7 @@ prog font ui =
       EventZip (intro font ui)
     imageSamp =
       fmap snd $
-      eZipByFst (drawingTime ui) image
+      eZipByFst (drawingTime 0.1 ui) image
 
 main :: IO ()
 main = do

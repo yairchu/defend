@@ -1,10 +1,12 @@
 module UI (
-  eWithPrev, keyState
+  drawingTime, eWithPrev, keyState
   ) where
 
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
+import FRP.Peakachu.Backend.Time (zipTime)
 import Data.Monoid
+import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime)
 import Graphics.UI.GLUT
 
 keyState :: Key -> UI -> Event KeyState
@@ -25,4 +27,18 @@ eWithPrev =
   where
     step xs x = x : take 1 xs
     f l = (l !! 1, head l)
+
+drawingTime :: NominalDiffTime -> UI -> Event UTCTime
+drawingTime framePerAtLeast =
+  eMapMaybe f .
+  escanl step Nothing .
+  zipTime
+  where
+    step _ (now, IdleEvent) = Just (True, now)
+    step Nothing (now, _) = Just (True, now)
+    step (Just (_, prev)) (now, _)
+      | diffUTCTime now prev >= framePerAtLeast = Just (True, now)
+      | otherwise = Just (False, prev)
+    f (Just (True, now)) = Just now
+    f _ = Nothing
 

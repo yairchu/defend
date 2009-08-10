@@ -1,5 +1,7 @@
+import Font
 import Network
 import Parse
+import UI
 
 import Control.Applicative ((<$))
 import Control.Concurrent
@@ -7,17 +9,20 @@ import Control.Monad.Cont
 import Control.Monad
 import Data.List (intercalate)
 import Data.List.Class (filter)
+import Data.Map (lookup)
 import Data.Monoid
+import Data.Time.Clock (diffUTCTime)
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import FRP.Peakachu.Backend.IO
+import FRP.Peakachu.Backend.Time
 import FRP.Peakachu.Internal
 import Graphics.UI.GLUT
 import Network.Socket
 import Network.HTTP
 import Text.Read.HT
 
-import Prelude hiding (filter)
+import Prelude hiding (filter, lookup)
 
 -- more options at http://www.voip-info.org/wiki/view/STUN
 stunServer :: String
@@ -45,6 +50,7 @@ data Message = Ping | Pong | Character Char
 
 main :: IO ()
 main = do
+  font <- fmap loadFont $ readFile "../data/defend.font"
   (sock, myAddresses) <-
     getHostAddrByName stunServer >>=
     createListenUdpSocket . SockAddrInet stunPort
@@ -92,9 +98,28 @@ main = do
     recvChars = eMapMaybe rChr $ fmap snd recvs
     gChr (KeyboardMouseEvent (Char x) Down _ _) = Just x
     gChr _ = Nothing
+    snoc xs x = xs ++ [x]
+    draw (now, msg) =
+      Image $ do
+        blend $= Enabled
+        blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
+        renderPrimitive Triangles .
+          forM_ msg $ \(charTime, char) -> do
+            let
+              timeDiff = realToFrac $ diffUTCTime now charTime
+              polys =
+                maybe [] (concat . pixBody) $
+                lookup [char] font
+            color $ Color4 1 0.5 0.25 (1 - abs (0.5+timeDiff/2-1))
+            forM_ polys $ \(x, y) ->
+              vertex $ Vertex4 x y 0 (max 1 (3-timeDiff))
     prog ui =
-      (empty, effects)
+      (image, effects)
       where
+        image =
+          fmap draw .
+          eZipByFst (drawingTime 0.1 ui) .
+          escanl snoc [] $ zipTime recvChars
         effects = mconcat
           [ nonUiEffects
           , mkSideEffect (uncurry sendChar) $

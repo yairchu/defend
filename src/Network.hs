@@ -81,7 +81,7 @@ createListenUdpSocket stunServer = do
 parseSockAddr :: String -> Maybe SockAddr
 parseSockAddr text = do
   prt <- maybeRead portText :: Maybe Int
-  ipBytes <- sequence $ map maybeRead ipBytesText
+  ipBytes <- mapM maybeRead ipBytesText
   let hst = foldl ((+) . (* 0x100)) 0 (reverse ipBytes)
   return $ SockAddrInet (fromIntegral prt) hst
   where

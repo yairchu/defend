@@ -62,7 +62,7 @@ main = do
     sep = ','
     myAddrText = intercalate [sep] $ map show myAddresses
     parseDifferentAddresses =
-      (>>= sequence . map parseSockAddr . split sep) .
+      (>>= mapM parseSockAddr . split sep) .
       filter (/= myAddrText) .
       fmap (takeWhile (/= '\n'))
     urlPrefix = "http://defendtheking.nfshost.com/match.cgi?"
@@ -88,7 +88,7 @@ main = do
     nonUiEffects = mconcat
       [ getHttp $ (url, ()) <$ ereturn () `merge` retries
       , setRetryTimer $ (retryInterval, ()) <$ serverResponse
-      , mkSideEffect ((() <$) . sequence . map doPing) $ eMapMaybe id serverResponse
+      , mkSideEffect ((() <$) . mapM doPing) $ eMapMaybe id serverResponse
       , mkSideEffect doPong recvedPings
       , mkSideEffect print serverResponse
       , mkSideEffect print recvChars

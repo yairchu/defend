@@ -1,4 +1,4 @@
-module Network (
+module Networking (
   bindUdpAnyPort, createListenUdpSocket,
   getHostAddrByName, parseSockAddr, stunPort
   ) where
@@ -8,8 +8,12 @@ import ParseStun (
   StunMessage(..),
   parseStun, getRealMappedAddress)
 
-import Control.Monad (join, liftM2, when, replicateM)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (newMVar, readMVar)
+import Control.Concurrent.MVar.YC (writeMVar)
+import Control.Monad (join, liftM2, unless, when, replicateM)
 import Data.Char (chr)
+import Data.Function (fix)
 import Data.List (nub)
 import Network.BSD (getHostByName, getHostName, hostAddress)
 import Network.Socket (
@@ -56,19 +60,23 @@ getHostAddress =
 -- using a stun server
 udpGetInternetAddr :: SockAddr -> Socket -> IO SockAddr
 udpGetInternetAddr stunServer sock = do
-  requestRaw <-
-    fmap ("\0\1\0\0" ++) .
-    replicateM 16 . fmap chr $ randomRIO (0, 255)
-  sendTo sock requestRaw stunServer
+  gotResponseVar <- newMVar False
+  forkIO . fix $ \resume -> do
+    gotResponse <- readMVar gotResponseVar
+    unless gotResponse $ do
+      requestRaw <-
+        fmap ("\0\1\0\0" ++) .
+        replicateM 16 . fmap chr $ randomRIO (0, 255)
+      sendTo sock requestRaw stunServer
+      threadDelay 500000 -- 0.5 second
+      resume
   (responseRaw, _, _) <- recvFrom sock 1024
+  writeMVar gotResponseVar True
   let
-    Just request = parseStun requestRaw
     Just response = parseStun responseRaw
     Just address = getRealMappedAddress response
   when (stunMsgType response /= 0x101) $
     fail "wrong response type"
-  when (stunTransactId response /= stunTransactId request) $
-    fail "wrong transaction id"
   return address
 
 createListenUdpSocket :: SockAddr -> IO (Socket, [SockAddr])

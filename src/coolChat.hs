@@ -4,8 +4,6 @@ import Parse
 import UI
 
 import Control.Applicative ((<$))
-import Control.Concurrent
-import Control.Monad.Cont
 import Control.Monad
 import Data.List (intercalate)
 import Data.List.Class (filter)
@@ -19,7 +17,6 @@ import FRP.Peakachu.Backend.Time
 import FRP.Peakachu.Internal
 import Graphics.UI.GLUT
 import Network.Socket
-import Network.HTTP
 import Text.Read.HT
 
 import Prelude hiding (filter, lookup)
@@ -27,23 +24,6 @@ import Prelude hiding (filter, lookup)
 -- more options at http://www.voip-info.org/wiki/view/STUN
 stunServer :: String
 stunServer = "stun.ekiga.net"
-
-httpGet :: IO (EffectfulFunc String (Maybe String) a)
-httpGet =
-  mkEffectfulFunc go
-  where
-    go uri = do
-      liftForkIO
-      eresp <- lift . simpleHTTP $ getRequest uri
-      ContT $ case eresp of
-        Left _ -> ($ Nothing)
-        Right resp -> ($ Just (rspBody resp))
-
-recvFromE :: Socket -> Int -> IO (Event (String, Int, SockAddr))
-recvFromE sock size = do
-  (event, callback) <- makeCallbackEvent
-  forkIO . forever $ recvFrom sock size >>= callback
-  return event
 
 data Message = Ping | Pong | Character Char
   deriving (Eq, Read, Show)

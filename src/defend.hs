@@ -3,8 +3,10 @@ import Chess
 import Font
 import GameLogic
 import Geometry
+import Networking
 import UI
 
+import Control.Applicative
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
@@ -16,8 +18,18 @@ import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import FRP.Peakachu.Backend.Time
 import Graphics.UI.GLUT
+import Network.Socket
 
 import Prelude hiding (filter)
+
+data DefEnv = DefEnv {
+  defFont :: DefendFont,
+  defSock :: Socket,
+  defAddrs :: [SockAddr],
+  defHttp :: EffectfulFunc String (Maybe String) (),
+  defTimer :: EffectfulFunc Timeout () (),
+  defRecvs :: Event (String, Int, SockAddr)
+  }
 
 piecePix :: DefendFont -> PieceType -> Pix
 piecePix font x = font ! map toLower (show x)
@@ -169,8 +181,8 @@ chooseMove board src (dx, dy) =
       where
         (px, py) = board2screen pos
 
-game :: DefendFont -> UI -> Event Image
-game font = do
+game :: DefEnv -> UI -> (Event Image, SideEffect)
+game env = do
   let
     drag (Down, (x, _)) (Down, c) =
       (Down, (x, Just c))
@@ -205,10 +217,11 @@ game font = do
       eWithPrev selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
-  fmap (draw font) .
+  image <- fmap (draw (defFont env)) .
     ezip board .
     ezip selection .
     mouseMotionEvent
+  return (image, mempty)
 
 zipRelTime :: Event a -> Event (NominalDiffTime, a)
 zipRelTime =
@@ -270,25 +283,43 @@ intro font =
         e' = f/90-0.1
         e = min e' 0 + max (e'-0.02) 0
 
-prog :: DefendFont -> UI -> (Event Image, SideEffect)
-prog font ui =
-  (imageSamp, mempty)
-  where
+prog :: DefEnv -> UI -> (Event Image, SideEffect)
+prog env = do
+  (gameImage, gameEffect) <- game env
+  introImage <- intro $ defFont env
+  drawTime <- drawingTime 0.1
+  let
     image =
       runEventZip $
-      EventZip (game font ui) `mappend`
-      EventZip (intro font ui)
+      EventZip gameImage `mappend`
+      EventZip introImage
     imageSamp =
-      fmap snd $
-      eZipByFst (drawingTime 0.1 ui) image
+      fmap snd $ eZipByFst drawTime image
+  return (imageSamp, gameEffect)
+
+-- more options at http://www.voip-info.org/wiki/view/STUN
+stunServer :: String
+stunServer = "stun.ekiga.net"
+
+initEnv :: IO DefEnv
+initEnv = do
+  (sock, addresses) <-
+    getHostAddrByName stunServer >>=
+    createListenUdpSocket . SockAddrInet stunPort
+  pure DefEnv
+    <*> (fmap loadFont . readFile =<< getDataFileName "data/defend.font")
+    <*> pure sock
+    <*> pure addresses
+    <*> httpGet
+    <*> setTimerEvent
+    <*> recvFromE sock 1024
 
 main :: IO ()
 main = do
-  font <- fmap loadFont . readFile =<< getDataFileName "data/defend.font"
   initialWindowSize $= Size 600 600
   initialDisplayCapabilities $=
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run (prog font)
+  initEnv >>= run . prog
 

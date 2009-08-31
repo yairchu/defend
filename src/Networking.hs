@@ -1,6 +1,7 @@
 module Networking (
   bindUdpAnyPort, createListenUdpSocket,
-  getHostAddrByName, parseSockAddr, stunPort
+  getHostAddrByName, httpGet,
+  parseSockAddr, recvFromE, stunPort
   ) where
 
 import Parse (split)
@@ -11,11 +12,17 @@ import ParseStun (
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newMVar, readMVar)
 import Control.Concurrent.MVar.YC (writeMVar)
-import Control.Monad (join, liftM2, unless, when, replicateM)
+import Control.Monad (forever, join, liftM2, unless, when, replicateM)
+import Control.Monad.Cont (ContT(..))
+import Control.Monad.Trans (lift)
 import Data.Char (chr)
 import Data.Function (fix)
 import Data.List (nub)
+import FRP.Peakachu (EffectfulFunc, Event)
+import FRP.Peakachu.Backend.IO (
+  liftForkIO, mkCallbackEvent, mkEffectfulFunc)
 import Network.BSD (getHostByName, getHostName, hostAddress)
+import Network.HTTP (getRequest, rspBody, simpleHTTP)
 import Network.Socket (
   Family(..), HostAddress, PortNumber(..),
   SockAddr(..), Socket, SocketType(..),
@@ -96,4 +103,21 @@ parseSockAddr text = do
     (ipText, portText') = break (== ':') text
     portText = drop 1 portText'
     ipBytesText = split '.' ipText
+
+httpGet :: IO (EffectfulFunc String (Maybe String) a)
+httpGet =
+  mkEffectfulFunc go
+  where
+    go uri = do
+      liftForkIO
+      eresp <- lift . simpleHTTP $ getRequest uri
+      ContT $ case eresp of
+        Left _ -> ($ Nothing)
+        Right resp -> ($ Just (rspBody resp))
+
+recvFromE :: Socket -> Int -> IO (Event (String, Int, SockAddr))
+recvFromE sock size = do
+  (event, callback) <- mkCallbackEvent
+  forkIO . forever $ recvFrom sock size >>= callback
+  return event
 

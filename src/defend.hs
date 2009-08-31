@@ -19,10 +19,12 @@ import FRP.Peakachu.Backend.GLUT
 import FRP.Peakachu.Backend.Time
 import Graphics.UI.GLUT
 import Network.Socket
+import System.Random (randomRIO)
 
 import Prelude hiding (filter)
 
 data DefEnv = DefEnv {
+  defClientId :: Integer,
   defFont :: DefendFont,
   defSock :: Socket,
   defAddrs :: [SockAddr],
@@ -57,8 +59,8 @@ glStyle = do
   hint PolygonSmooth $= Nicest
   blend $= Enabled
 
-draw :: DefendFont -> (Board, (Selection, DrawPos)) -> Image
-draw font (board, ((dragSrc, dragDst), (cx, cy))) =
+draw :: DefEnv -> (Board, (Selection, DrawPos)) -> Image
+draw env (board, ((dragSrc, dragDst), (cx, cy))) =
   Image $ do
     glStyle
     blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
@@ -72,6 +74,10 @@ draw font (board, ((dragSrc, dragDst), (cx, cy))) =
     forM_ dragDst drawCursor
     unless (srcFirst dragDst) $ drawCursor dragSrc
   where
+    font = defFont env
+    me
+      | 0 == defClientId env `mod` 2 = Black
+      | otherwise = White
     srcFirst Nothing = True
     srcFirst (Just dst) = cursorDist dragSrc < cursorDist dst
     cursorDist = cursorDist' . board2screen
@@ -105,7 +111,7 @@ draw font (board, ((dragSrc, dragDst), (cx, cy))) =
           \((a, b), (c, d)) ->
           forM [c, d, b, a] . vert $ pieceSize * 0.125
     pieceSize = 0.9
-    vis = visibleSquares White board
+    vis = visibleSquares me board
     drawBoard =
       forM_ vis $ \(bx, by) -> do
         let
@@ -151,7 +157,7 @@ draw font (board, ((dragSrc, dragDst), (cx, cy))) =
         forM_ (tail points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
     pieceUnderCursor =
-      filter ((== White) . pieceSide) $
+      filter ((== me) . pieceSide) $
       pieceAt board dragSrc
     curPix =
       case pieceUnderCursor of
@@ -217,7 +223,7 @@ game env = do
       eWithPrev selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
-  image <- fmap (draw (defFont env)) .
+  image <- fmap (draw env) .
     ezip board .
     ezip selection .
     mouseMotionEvent
@@ -307,6 +313,7 @@ initEnv = do
     getHostAddrByName stunServer >>=
     createListenUdpSocket . SockAddrInet stunPort
   pure DefEnv
+    <*> randomRIO (0, 2^(128::Int))
     <*> (fmap loadFont . readFile =<< getDataFileName "data/defend.font")
     <*> pure sock
     <*> pure addresses

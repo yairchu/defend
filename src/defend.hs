@@ -6,12 +6,12 @@ import Geometry
 import Networking
 import UI
 
-import Control.Applicative
+import Control.Applicative (Applicative(..))
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
 import Data.List.Class (filter)
-import Data.Map ((!))
+import Data.Map ((!), fromList, insert)
 import Data.Monoid
 import Data.Time.Clock
 import FRP.Peakachu
@@ -223,6 +223,18 @@ game env = do
         proc (brd, (src, dst)) =
           (src, fmap fst (procDst brd src dst))
     moves =
+      eFlatten . fmap ((uncurry . flip) (!)) $ eZipByFst gameIter queue
+    queue2 =
+      escanl queue2Add ([], []) $
+      fmap Left queuedMoves `merge` fmap Right gameIter
+    queue2Add (ys, xs) (Left x) = (ys, x : xs)
+    queue2Add (_, xs) _ = (xs, [])
+    queue2Out = eZipByFst gameIter $ fmap fst queue2
+    queue = escanl queueAdd startQueue queue2Out
+    queueAdd q (i, new) = insert (i + latency) new q
+    latency = 10 -- in game iterations
+    startQueue = fromList [(i, []) | i <- [0..latency]]
+    queuedMoves =
       fmap (snd . fst) .
       efilter moveFilter $
       eWithPrev selectionRaw

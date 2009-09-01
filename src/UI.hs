@@ -28,6 +28,9 @@ eWithPrev =
     step xs x = x : take 1 xs
     f l = (l !! 1, head l)
 
+-- when idle (on IdleEvent), draw
+-- otherwise, process the remaining events
+-- while drawing at a minimal FPS rate
 drawingTime :: NominalDiffTime -> UI -> Event UTCTime
 drawingTime framePerAtLeast =
   eMapMaybe f .

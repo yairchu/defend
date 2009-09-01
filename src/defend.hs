@@ -23,13 +23,18 @@ import System.Random (randomRIO)
 
 import Prelude hiding (filter)
 
+-- hlint says: Type eta reduce
+-- but need an extension for that? TODO: check with web..
+type Timer a = EffectfulFunc Timeout () a
+
 data DefEnv = DefEnv {
   defClientId :: Integer,
   defFont :: DefendFont,
   defSock :: Socket,
   defAddrs :: [SockAddr],
   defHttp :: EffectfulFunc String (Maybe String) (),
-  defTimer :: EffectfulFunc Timeout () (),
+  defSrvRetryTimer :: Timer (),
+  defGameIterTimer :: Timer Integer,
   defRecvs :: Event (String, Int, SockAddr)
   }
 
@@ -223,11 +228,14 @@ game env = do
       eWithPrev selectionRaw
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
+    (setGameIterTimer, gameIterTimer) = defGameIterTimer env
+    gameIter = ereturn 0 `merge` fmap snd gameIterTimer
+    effects = setGameIterTimer (fmap (((,) 50) . (+ 1)) gameIter)
   image <- fmap (draw env) .
     ezip board .
     ezip selection .
     mouseMotionEvent
-  return (image, mempty)
+  return (image, effects)
 
 zipRelTime :: Event a -> Event (NominalDiffTime, a)
 zipRelTime =
@@ -309,15 +317,19 @@ stunServer = "stun.ekiga.net"
 
 initEnv :: IO DefEnv
 initEnv = do
-  (sock, addresses) <-
+{-  (sock, addresses) <-
     getHostAddrByName stunServer >>=
-    createListenUdpSocket . SockAddrInet stunPort
+    createListenUdpSocket . SockAddrInet stunPort -}
+  let
+    sock = undefined
+    addresses = undefined
   pure DefEnv
     <*> randomRIO (0, 2^(128::Int))
     <*> (fmap loadFont . readFile =<< getDataFileName "data/defend.font")
     <*> pure sock
     <*> pure addresses
     <*> httpGet
+    <*> setTimerEvent
     <*> setTimerEvent
     <*> recvFromE sock 1024
 

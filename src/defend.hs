@@ -223,17 +223,19 @@ game env = do
         proc (brd, (src, dst)) =
           (src, fmap fst (procDst brd src dst))
     moves =
-      eFlatten . fmap ((uncurry . flip) (!)) $ eZipByFst gameIter queue
-    queue2 =
-      escanl queue2Add ([], []) $
+      eFlatten . fmap getMoves $ eZipByFst gameIter queue
+    getMoves (i, q) = q ! (i, myId)
+    localQueue =
+      escanl localQueueAdd ([], []) $
       fmap Left queuedMoves `merge` fmap Right gameIter
-    queue2Add (ys, xs) (Left x) = (ys, x : xs)
-    queue2Add (_, xs) _ = (xs, [])
-    queue2Out = eZipByFst gameIter $ fmap fst queue2
-    queue = escanl queueAdd startQueue queue2Out
-    queueAdd q (i, new) = insert (i + latency) new q
+    localQueueAdd (ys, xs) (Left x) = (ys, x : xs)
+    localQueueAdd (_, xs) _ = (xs, [])
+    localQueueOut = eZipByFst gameIter $ fmap fst localQueue
+    myId = defClientId env
+    queue = escanl queueAdd startQueue localQueueOut
+    queueAdd q (i, new) = insert ((i + latency), myId) new q
     latency = 10 -- in game iterations
-    startQueue = fromList [(i, []) | i <- [0..latency]]
+    startQueue = fromList [((i, myId), []) | i <- [0..latency]]
     queuedMoves =
       fmap (snd . fst) .
       efilter moveFilter $

@@ -230,10 +230,16 @@ game env = do
       fmap Left queuedMoves `merge` fmap Right gameIter
     localQueueAdd (ys, xs) (Left x) = (ys, x : xs)
     localQueueAdd (_, xs) _ = (xs, [])
-    localQueueOut = eZipByFst gameIter $ fmap fst localQueue
+    localQueueOut =
+      eZipByFst
+      (fmap ((flip (,) myId) . (+ latency)) gameIter)
+      (fmap fst localQueue)
     myId = defClientId env
-    queue = escanl queueAdd startQueue localQueueOut
-    queueAdd q (i, new) = insert ((i + latency), myId) new q
+    remoteQueueUpdate = empty
+    queue =
+      escanl queueAdd startQueue $
+      localQueueOut `merge` remoteQueueUpdate
+    queueAdd q (i, new) = insert i new q
     latency = 10 -- in game iterations
     startQueue = fromList [((i, myId), []) | i <- [0..latency]]
     queuedMoves =

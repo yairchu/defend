@@ -192,6 +192,34 @@ chooseMove board src (dx, dy) =
       where
         (px, py) = board2screen pos
 
+netEngine :: Event a -> DefEnv -> (Event a, SideEffect)
+netEngine localMoves env =
+  (moves, effects)
+  where
+    localQueue =
+      escanl localQueueAdd ([], []) $
+      fmap Left localMoves `merge` fmap Right gameIter
+    localQueueAdd (ys, xs) (Left x) = (ys, x : xs)
+    localQueueAdd (_, xs) _ = (xs, [])
+    localQueueOut =
+      eZipByFst
+      (fmap ((flip (,) myId) . (+ latency)) gameIter)
+      (fmap fst localQueue)
+    myId = defClientId env
+    moves =
+      eFlatten . fmap getMoves $ eZipByFst gameIter queue
+    getMoves (i, q) = q ! (i, myId)
+    (setGameIterTimer, gameIterTimer) = defGameIterTimer env
+    gameIter = ereturn 0 `merge` fmap snd gameIterTimer
+    effects = setGameIterTimer (fmap (((,) 50) . (+ 1)) gameIter)
+    remoteQueueUpdate = empty
+    queue =
+      escanl queueAdd startQueue $
+      localQueueOut `merge` remoteQueueUpdate
+    queueAdd q (i, new) = insert i new q
+    latency = 10 -- in game iterations
+    startQueue = fromList [((i, myId), []) | i <- [0..latency]]
+
 game :: DefEnv -> UI -> (Event Image, SideEffect)
 game env = do
   let
@@ -209,6 +237,7 @@ game env = do
     escanl drag (Up, undefined) .
     liftM2 ezip (keyState (MouseButton LeftButton)) mouseMotionEvent
   let
+    (moves, effects) = netEngine queuedMoves env 
     board = escanl doMove chessStart moves
     procDst brd src = join . fmap (chooseMove brd src)
     doMove brd (src, dst) =
@@ -222,35 +251,12 @@ game env = do
       where
         proc (brd, (src, dst)) =
           (src, fmap fst (procDst brd src dst))
-    moves =
-      eFlatten . fmap getMoves $ eZipByFst gameIter queue
-    getMoves (i, q) = q ! (i, myId)
-    localQueue =
-      escanl localQueueAdd ([], []) $
-      fmap Left queuedMoves `merge` fmap Right gameIter
-    localQueueAdd (ys, xs) (Left x) = (ys, x : xs)
-    localQueueAdd (_, xs) _ = (xs, [])
-    localQueueOut =
-      eZipByFst
-      (fmap ((flip (,) myId) . (+ latency)) gameIter)
-      (fmap fst localQueue)
-    myId = defClientId env
-    remoteQueueUpdate = empty
-    queue =
-      escanl queueAdd startQueue $
-      localQueueOut `merge` remoteQueueUpdate
-    queueAdd q (i, new) = insert i new q
-    latency = 10 -- in game iterations
-    startQueue = fromList [((i, myId), []) | i <- [0..latency]]
+    moveFilter ((Down, _), (Up, _)) = True
+    moveFilter _ = False
     queuedMoves =
       fmap (snd . fst) .
       efilter moveFilter $
       eWithPrev selectionRaw
-    moveFilter ((Down, _), (Up, _)) = True
-    moveFilter _ = False
-    (setGameIterTimer, gameIterTimer) = defGameIterTimer env
-    gameIter = ereturn 0 `merge` fmap snd gameIterTimer
-    effects = setGameIterTimer (fmap (((,) 50) . (+ 1)) gameIter)
   image <- fmap (draw env) .
     ezip board .
     ezip selection .

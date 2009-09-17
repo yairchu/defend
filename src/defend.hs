@@ -3,15 +3,16 @@ import Chess
 import Font
 import GameLogic
 import Geometry
+import NetEngine
 import Networking
 import UI
 
-import Control.Applicative (Applicative(..))
+import Control.Applicative (Applicative(..), (<$))
 import Control.Monad (forM, join, liftM2, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
 import Data.List.Class (filter)
-import Data.Map ((!), fromList, insert)
+import Data.Map ((!))
 import Data.Monoid
 import Data.Time.Clock
 import FRP.Peakachu
@@ -34,7 +35,7 @@ data DefEnv = DefEnv {
   defAddrs :: [SockAddr],
   defHttp :: EffectfulFunc String (Maybe String) (),
   defSrvRetryTimer :: Timer (),
-  defGameIterTimer :: Timer Integer,
+  defGameIterTimer :: Timer (),
   defRecvs :: Event (String, Int, SockAddr)
   }
 
@@ -192,34 +193,6 @@ chooseMove board src (dx, dy) =
       where
         (px, py) = board2screen pos
 
-netEngine :: Event a -> DefEnv -> (Event a, SideEffect)
-netEngine localMoves env =
-  (moves, effects)
-  where
-    localQueue =
-      escanl localQueueAdd ([], []) $
-      fmap Left localMoves `merge` fmap Right gameIter
-    localQueueAdd (ys, xs) (Left x) = (ys, x : xs)
-    localQueueAdd (_, xs) _ = (xs, [])
-    localQueueOut =
-      eZipByFst
-      (fmap ((flip (,) myId) . (+ latency)) gameIter)
-      (fmap fst localQueue)
-    myId = defClientId env
-    moves =
-      eFlatten . fmap getMoves $ eZipByFst gameIter queue
-    getMoves (i, q) = q ! (i, myId)
-    (setGameIterTimer, gameIterTimer) = defGameIterTimer env
-    gameIter = ereturn 0 `merge` fmap snd gameIterTimer
-    effects = setGameIterTimer (fmap (((,) 50) . (+ 1)) gameIter)
-    remoteQueueUpdate = empty
-    queue =
-      escanl queueAdd startQueue $
-      localQueueOut `merge` remoteQueueUpdate
-    queueAdd q (i, new) = insert i new q
-    latency = 10 -- in game iterations
-    startQueue = fromList [((i, myId), []) | i <- [0..latency]]
-
 game :: DefEnv -> UI -> (Event Image, SideEffect)
 game env = do
   let
@@ -237,8 +210,10 @@ game env = do
     escanl drag (Up, undefined) .
     liftM2 ezip (keyState (MouseButton LeftButton)) mouseMotionEvent
   let
-    (moves, effects) = netEngine queuedMoves env 
-    board = escanl doMove chessStart moves
+    (moves, effects) = netEngine (fmap (:) queuedMoves) (defClientId env) (setGameIterTimer, gameIterTimer)
+    (setGameIterTimer', gameIterTimer) = defGameIterTimer env
+    setGameIterTimer e = setGameIterTimer' ((50, ()) <$ e)
+    board = escanl doMove chessStart . eFlatten $ moves
     procDst brd src = join . fmap (chooseMove brd src)
     doMove brd (src, dst) =
       case procDst brd src dst of

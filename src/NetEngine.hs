@@ -8,24 +8,30 @@ import FRP.Peakachu (
   eMapMaybe, ereturn, escanl, merge)
 import Prelude hiding (lookup)
 
-data NetEngine moveType idType = NetEngine {
-  neLocalMove :: moveType,
-  neQueue :: Map (Integer, idType) moveType,
-  neLatencyIters :: Integer,
-  nePeerId :: idType,
-  nePeers :: [idType],
-  neWaitingForPeers :: Bool,
-  neGameIteration :: Integer,
-  neOutput :: Maybe moveType
+data NetEngine moveType idType = NetEngine
+  { neLocalMove :: moveType
+  , neQueue :: Map (Integer, idType) moveType
+  , neLatencyIters :: Integer
+  , nePeerId :: idType
+  , nePeers :: [idType]
+  , neWaitingForPeers :: Bool
+  , neGameIteration :: Integer
+  , neOutput :: Maybe moveType
   }
 
-data NetEngInput a
+data NetEngineInput moveType idType = NetEngineInput
+  { neiLocalMoveUpdates :: Event (moveType -> moveType)
+  , neiPeerId :: idType
+  , neiIterTimer :: EffectfulFunc () () ()
+  }
+
+data NetEngEvent a
   = LocalMove (a -> a)
   | IterTimer
 
 netEngineStep ::
   (Monoid a, Ord i) =>
-  NetEngine a i -> NetEngInput a -> NetEngine a i
+  NetEngine a i -> NetEngEvent a -> NetEngine a i
 netEngineStep ne (LocalMove f) =
   ne { neLocalMove = f (neLocalMove ne) }
 netEngineStep ne IterTimer =
@@ -53,10 +59,13 @@ netEngineCleanup ne = ne { neOutput = Nothing }
 
 netEngine ::
   (Monoid a, Ord i) =>
-  Event (a -> a) -> i -> EffectfulFunc () () () -> (Event a, SideEffect)
-netEngine localMoves peerId (setIterTimer, iterTimer) =
+  NetEngineInput a i -> (Event a, SideEffect)
+netEngine nei =
   (moves, effects)
   where
+    (setIterTimer, iterTimer) = neiIterTimer nei
+    peerId = neiPeerId nei
+    localMoves = neiLocalMoveUpdates nei
     effects = setIterTimer (((), ()) <$ moves `merge` ereturn mempty)
     moves = eMapMaybe neOutput ne
     ne = escanl (netEngineStep . netEngineCleanup) startEngine neInput

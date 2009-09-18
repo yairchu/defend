@@ -210,9 +210,13 @@ game env = do
     escanl drag (Up, undefined) .
     liftM2 ezip (keyState (MouseButton LeftButton)) mouseMotionEvent
   let
-    (moves, effects) = netEngine (fmap (:) queuedMoves) (defClientId env) (setGameIterTimer, gameIterTimer)
-    (setGameIterTimer', gameIterTimer) = defGameIterTimer env
-    setGameIterTimer e = setGameIterTimer' ((50, ()) <$ e)
+    (moves, effects) = netEngine $ NetEngineInput
+      { neiLocalMoveUpdates = fmap (:) queuedMoves
+      , neiPeerId = defClientId env
+      , neiIterTimer =
+        (setGameIterTimer . ((50, ()) <$), gameIterTimer)
+      }
+    (setGameIterTimer, gameIterTimer) = defGameIterTimer env
     board = escanl doMove chessStart . eFlatten $ moves
     procDst brd src = join . fmap (chooseMove brd src)
     doMove brd (src, dst) =

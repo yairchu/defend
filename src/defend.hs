@@ -19,7 +19,6 @@ import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
 import FRP.Peakachu.Backend.Time
 import Graphics.UI.GLUT
-import Network.Socket
 import System.Random (randomRIO)
 
 import Prelude hiding (filter)
@@ -28,15 +27,13 @@ import Prelude hiding (filter)
 -- but need an extension for that? TODO: check with web..
 type Timer a = EffectfulFunc Timeout () a
 
-data DefEnv = DefEnv {
-  defClientId :: Integer,
-  defFont :: DefendFont,
-  defSock :: Socket,
-  defAddrs :: [SockAddr],
-  defHttp :: EffectfulFunc String (Maybe String) (),
-  defSrvRetryTimer :: Timer (),
-  defGameIterTimer :: Timer (),
-  defRecvs :: Event (String, Int, SockAddr)
+data DefEnv = DefEnv
+  { defClientId :: Integer
+  , defFont :: DefendFont
+  , defSock :: PeakaSocket
+  , defHttp :: EffectfulFunc String (Maybe String) ()
+  , defSrvRetryTimer :: Timer ()
+  , defGameIterTimer :: Timer ()
   }
 
 piecePix :: DefendFont -> PieceType -> Pix
@@ -325,18 +322,13 @@ initEnv = do
 {-  (sock, addresses) <-
     getHostAddrByName stunServer >>=
     createListenUdpSocket . SockAddrInet stunPort -}
-  let
-    sock = undefined
-    addresses = undefined
   pure DefEnv
     <*> randomRIO (0, 2^(128::Int))
     <*> (fmap loadFont . readFile =<< getDataFileName "data/defend.font")
-    <*> pure sock
-    <*> pure addresses
+    <*> mkPeakaSocket stunServer
     <*> httpGet
     <*> setTimerEvent
     <*> setTimerEvent
-    <*> recvFromE sock 1024
 
 main :: IO ()
 main = do

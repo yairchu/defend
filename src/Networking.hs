@@ -1,4 +1,5 @@
 module Networking (
+  PeakaSocket, mkPeakaSocket,
   bindUdpAnyPort, createListenUdpSocket,
   getHostAddrByName, httpGet,
   parseSockAddr, recvFromE, stunPort
@@ -32,6 +33,24 @@ import Network.Socket (
 import Random (randomRIO)
 import System.IO.Error (isAlreadyInUseError, try)
 import Text.Read.HT (maybeRead)
+
+data PeakaSocket = PeakaSocket
+  { psSocket :: Socket
+  , psAddresses :: [SockAddr]
+  , psRecv :: Event (String, Int, SockAddr)
+  }
+
+mkPeakaSocket :: String -> IO PeakaSocket
+mkPeakaSocket stunServer = do
+  (sock, addrs) <-
+    getHostAddrByName stunServer >>=
+    createListenUdpSocket . SockAddrInet stunPort
+  recvs <- recvFromE sock 1024
+  return $ PeakaSocket
+    { psSocket = sock
+    , psAddresses = addrs
+    , psRecv = recvs
+    }
 
 stunPort :: PortNumber
 stunPort = fromInteger 3478

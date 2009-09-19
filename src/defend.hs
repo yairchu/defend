@@ -212,6 +212,7 @@ game env = do
       , neiPeerId = defClientId env
       , neiIterTimer =
         (setGameIterTimer . ((50, ()) <$), gameIterTimer)
+      , neiSocket = defSock env
       }
     (setGameIterTimer, gameIterTimer) = defGameIterTimer env
     board = escanl doMove chessStart . eFlatten $ moves
@@ -319,9 +320,6 @@ stunServer = "stun.ekiga.net"
 
 initEnv :: IO DefEnv
 initEnv = do
-{-  (sock, addresses) <-
-    getHostAddrByName stunServer >>=
-    createListenUdpSocket . SockAddrInet stunPort -}
   pure DefEnv
     <*> randomRIO (0, 2^(128::Int))
     <*> (fmap loadFont . readFile =<< getDataFileName "data/defend.font")

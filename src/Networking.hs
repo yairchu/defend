@@ -1,5 +1,5 @@
 module Networking (
-  PeakaSocket, mkPeakaSocket,
+  PeakaSocket(..), mkPeakaSocket,
   bindUdpAnyPort, createListenUdpSocket,
   getHostAddrByName, httpGet,
   parseSockAddr, recvFromE, stunPort

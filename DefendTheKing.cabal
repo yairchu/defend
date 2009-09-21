@@ -31,7 +31,7 @@ Executable defend
   Build-Depends:     base >=2 && < 5, mtl, haskell98,
                      containers, random,
                      GLUT, time, network, bytestring, MaybeT,
-                     utility-ht, HTTP, binary,
+                     utility-ht, HTTP, binary, zlib,
                      peakachu, List
   GHC-Options:       -O2 -Wall
 Executable defendFontEdit

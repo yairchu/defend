@@ -4,11 +4,12 @@ import Font
 import GameLogic
 import Geometry
 import NetEngine
+import NetMatching
 import Networking
 import UI
 
 import Control.Applicative (Applicative(..), (<$))
-import Control.Monad (forM, join, liftM2, when, unless)
+import Control.Monad (forM, join, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
 import Data.List.Class (filter)
@@ -34,6 +35,7 @@ data DefEnv = DefEnv
   , defHttp :: EffectfulFunc String (Maybe String) ()
   , defSrvRetryTimer :: Timer ()
   , defGameIterTimer :: Timer ()
+  , defTransmitTimer :: Timer ()
   }
 
 piecePix :: DefendFont -> PieceType -> Pix
@@ -191,8 +193,9 @@ chooseMove board src (dx, dy) =
         (px, py) = board2screen pos
 
 game :: DefEnv -> UI -> (Event Image, SideEffect)
-game env = do
-  let
+game env ui =
+  (image, effect)
+  where
     drag (Down, (x, _)) (Down, c) =
       (Down, (x, Just c))
     drag _ (s, c) =
@@ -202,20 +205,28 @@ game env = do
         dst
           | s == Up = Nothing
           | otherwise = Just c
-  selectionRaw <-
-    edrop (1::Int) .
-    escanl drag (Up, undefined) .
-    liftM2 ezip (keyState (MouseButton LeftButton)) mouseMotionEvent
-  let
-    (moves, effects) = netEngine $ NetEngineInput
+    selectionRaw =
+      edrop (1::Int) .
+      escanl drag (Up, undefined) $
+      ezip (keyState (MouseButton LeftButton) ui) (mouseMotionEvent ui)
+    neo = netEngine $ NetEngineInput
       { neiLocalMoveUpdates = fmap (:) queuedMoves
       , neiPeerId = defClientId env
+      , neiSocket = defSock env
+      , neiNewPeerAddrs = matchingAddrs
       , neiIterTimer =
         (setGameIterTimer . ((50, ()) <$), gameIterTimer)
-      , neiSocket = defSock env
+      , neiTransmitTimer =
+        (setTransmitTimer . ((20, ()) <$), transmitTimer)
       }
+    (matchingAddrs, matchingEffects) =
+      netMatching (defSock env) (defHttp env)
+      (setMatchingTimer . ((1000, ()) <$), matchingTimer)
+      (neoIsConnected neo)
+    (setMatchingTimer, matchingTimer) = defSrvRetryTimer env
     (setGameIterTimer, gameIterTimer) = defGameIterTimer env
-    board = escanl doMove chessStart . eFlatten $ moves
+    (setTransmitTimer, transmitTimer) = defTransmitTimer env
+    board = escanl doMove chessStart . eFlatten . neoMove $ neo
     procDst brd src = join . fmap (chooseMove brd src)
     doMove brd (src, dst) =
       case procDst brd src dst of
@@ -234,11 +245,14 @@ game env = do
       fmap (snd . fst) .
       efilter moveFilter $
       eWithPrev selectionRaw
-  image <- fmap (draw env) .
-    ezip board .
-    ezip selection .
-    mouseMotionEvent
-  return (image, effects)
+    image = fmap (draw env) .
+      ezip board .
+      ezip selection .
+      mouseMotionEvent $ ui
+    effect = mconcat
+      [ neoSideEffect neo
+      , matchingEffects
+      ]
 
 zipRelTime :: Event a -> Event (NominalDiffTime, a)
 zipRelTime =
@@ -325,6 +339,7 @@ initEnv = do
     <*> (fmap loadFont . readFile =<< getDataFileName "data/defend.font")
     <*> mkPeakaSocket stunServer
     <*> httpGet
+    <*> setTimerEvent
     <*> setTimerEvent
     <*> setTimerEvent
 

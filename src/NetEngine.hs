@@ -1,14 +1,18 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module NetEngine where
 
 import Networking
 
+import Codec.Compression.Zlib (decompress, compress)
 import Control.Applicative ((<$), (<$>))
-import Control.Monad (guard)
+import Control.Monad (guard, forM_)
+import Data.ByteString.Lazy.Char8 (pack, unpack)
 import Data.Map (Map, delete, fromList, insert, lookup, toList)
 import Data.Monoid (Monoid(..))
 import FRP.Peakachu (
   EffectfulFunc, Event, SideEffect,
-  eMapMaybe, ereturn, escanl, merge)
+  eMapMaybe, ereturn, escanl, eZipByFst, merge)
 import FRP.Peakachu.Backend.IO (mkSideEffect)
 import Network.Socket (SockAddr, sendTo)
 import Prelude hiding (lookup)
@@ -31,8 +35,16 @@ data NetEngine moveType idType = NetEngine
 data NetEngineInput moveType idType = NetEngineInput
   { neiLocalMoveUpdates :: Event (moveType -> moveType)
   , neiPeerId :: idType
-  , neiIterTimer :: EffectfulFunc () () ()
   , neiSocket :: PeakaSocket
+  , neiNewPeerAddrs :: Event SockAddr
+  , neiIterTimer :: EffectfulFunc () () ()
+  , neiTransmitTimer :: EffectfulFunc () () ()
+  }
+
+data NetEngineOutput moveType = NetEngineOutput
+  { neoMove :: Event moveType
+  , neoSideEffect :: SideEffect
+  , neoIsConnected :: Event Bool
   }
 
 data NetEngEvent a
@@ -51,9 +63,16 @@ data HelloType = Let'sPlay | We'reOn
 netEngineStep ::
   (Monoid a, Ord i, Read a, Read i) =>
   NetEngine a i -> NetEngEvent a -> NetEngine a i
+netEngineStep ne IterTimer = netEngineNextIter ne
 netEngineStep ne (LocalMove f) =
   ne { neLocalMove = f (neLocalMove ne) }
-netEngineStep ne IterTimer =
+netEngineStep ne (Recv (msg, _, peerAddr)) =
+  netEngineProcPacket ne
+  ((read . unpack . decompress . pack) msg) peerAddr
+
+netEngineNextIter ::
+  (Monoid a, Ord i) => NetEngine a i -> NetEngine a i
+netEngineNextIter ne =
   case peerMoves of
     Nothing -> ne { neWaitingForPeers = True }
     Just move ->
@@ -64,6 +83,7 @@ netEngineStep ne IterTimer =
           foldr delete (neQueue ne) moveKeys
       , neGameIteration = iter + 1
       , neOutputMove = return move
+      , neWaitingForPeers = False
       }
   where
     moveKey = (iter + neLatencyIters ne, nePeerId ne)
@@ -72,16 +92,19 @@ netEngineStep ne IterTimer =
     peerMoves = 
       mconcat <$>
       sequence ((`lookup` neQueue ne) <$> moveKeys)
-netEngineStep ne (Recv (msg, _, peerAddr)) =
-  netEngineProcPacket ne (read msg) peerAddr
 
 netEngineProcPacket ::
   (Monoid a, Ord i, Read a, Read i) =>
   NetEngine a i -> NetEngPacket a i -> SockAddr -> NetEngine a i
-netEngineProcPacket ne (Moves upd) _ =
-  ne { neQueue = neQueue ne `mappend`
-  (fromList . filter filtMove . toList) upd }
+netEngineProcPacket ne (Moves upd) _
+  | neWaitingForPeers ne = netEngineNextIter neUpd
+  | otherwise = neUpd
   where
+    neUpd = ne
+      { neQueue =
+          neQueue ne `mappend`
+          (fromList . filter filtMove . toList) upd
+      }
     filtMove ((iter, _), _) = iter >= neGameIteration ne
 netEngineProcPacket ne (Hello peer hType) peerAddr
   | 2 == length (nePeers ne) = ne
@@ -107,20 +130,33 @@ netEngineInitialQueue peerId latencyIters =
   fromList [((i, peerId), mempty) | i <- [0 .. latencyIters - 1]]
 
 netEngine ::
-  (Monoid a, Ord i, Read a, Read i, Show a, Show i) =>
-  NetEngineInput a i -> (Event a, SideEffect)
+  forall a i. (Monoid a, Ord i, Read a, Read i, Show a, Show i) =>
+  NetEngineInput a i -> NetEngineOutput a
 netEngine nei =
-  (moves, effects)
+  NetEngineOutput
+  { neoMove = eMapMaybe neOutputMove ne
+  , neoSideEffect = mconcat
+    [ setIterTimer $ ((), ()) <$ moves `merge` ereturn mempty
+    , setTransmitTimer $ ((), ()) <$ transmitTimer `merge` ereturn ((), ())
+    , mkSideEffect (uncurry sendPacket) (eMapMaybe neOutputPacket ne)
+    , mkSideEffect (sendPacket letsPlayPacket) (neiNewPeerAddrs nei)
+    , mkSideEffect transmit (eZipByFst transmitTimer ne)
+    ]
+  , neoIsConnected = (> 1) . length . nePeers <$> ne
+  }
   where
+    (setTransmitTimer, transmitTimer) = neiTransmitTimer nei
+    transmit (_, n) =
+      forM_ (nePeerAddrs n) (sendPacket (Moves (neQueue n)))
+    letsPlayPacket :: NetEngPacket a i
+    letsPlayPacket = Hello (neiPeerId nei) Let'sPlay
     (setIterTimer, iterTimer) = neiIterTimer nei
     peerId = neiPeerId nei
     localMoves = neiLocalMoveUpdates nei
-    effects = mconcat
-      [ setIterTimer (((), ()) <$ moves `merge` ereturn mempty)
-      , mkSideEffect sendPacket . eMapMaybe neOutputPacket $ ne
-      ]
-    sendPacket (packet, addr) =
-      () <$ sendTo ((psSocket . neiSocket) nei) (show packet) addr
+    sendPacket packet addr =
+      () <$
+      sendTo ((psSocket . neiSocket) nei)
+      ((unpack . compress . pack . show) packet) addr
     moves = eMapMaybe neOutputMove ne
     ne = escanl (netEngineStep . netEngineCleanup) startEngine neInput
     neInput = foldl1 merge

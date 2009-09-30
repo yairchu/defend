@@ -118,8 +118,8 @@ typedText =
     m (Char c, _, _, _) = c
     m _ = '#' -- should never get here
 
-game :: EffectfulFunc FilePath String () -> UI -> (Event Image, SideEffect)
-game (doReadFile, theReadFile) = do
+game :: EffectFunc FilePath String () -> UI -> (Event Image, SideEffect)
+game fileReader = do
   mouse <- fmap (fmap toGrid) mouseMotionEvent
   chars <- typedText
   let
@@ -140,7 +140,7 @@ game (doReadFile, theReadFile) = do
     font =
       escanl step mempty .
       runEventMerge .
-      mappend (EventMerge (fmap (Left . read . fst) theReadFile)) .
+      mappend (EventMerge (fmap (Left . read . fst) (efOut fileReader))) .
       fmap Right $
       mappend (EventMerge lClicks) (EventMerge rClicks)
     step cur (Right (but, (key, point))) =
@@ -155,7 +155,7 @@ game (doReadFile, theReadFile) = do
       fmap draw .
       ezip font $ textNMouse
   doLoad <-
-    doReadFile . fmap (flip (,) ()) .
+    efRun fileReader . fmap (flip (,) ()) .
     atPress (Char 'l') altMod filename
   save <-
     writeFileE .

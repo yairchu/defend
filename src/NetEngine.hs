@@ -11,7 +11,7 @@ import Data.ByteString.Lazy.Char8 (pack, unpack)
 import Data.Map (Map, delete, fromList, insert, lookup, toList)
 import Data.Monoid (Monoid(..))
 import FRP.Peakachu (
-  EffectfulFunc, Event, SideEffect,
+  EffectFunc(..), Event, SideEffect,
   eMapMaybe, ereturn, escanl, eZipByFst, merge)
 import FRP.Peakachu.Backend.IO (mkSideEffect)
 import Network.Socket (SockAddr, sendTo)
@@ -37,8 +37,8 @@ data NetEngineInput moveType idType = NetEngineInput
   , neiPeerId :: idType
   , neiSocket :: PeakaSocket
   , neiNewPeerAddrs :: Event SockAddr
-  , neiIterTimer :: EffectfulFunc () () ()
-  , neiTransmitTimer :: EffectfulFunc () () ()
+  , neiIterTimer :: EffectFunc () () ()
+  , neiTransmitTimer :: EffectFunc () () ()
   }
 
 data NetEngineOutput moveType = NetEngineOutput
@@ -136,21 +136,19 @@ netEngine nei =
   NetEngineOutput
   { neoMove = eMapMaybe neOutputMove ne
   , neoSideEffect = mconcat
-    [ setIterTimer $ ((), ()) <$ moves `merge` ereturn mempty
-    , setTransmitTimer $ ((), ()) <$ transmitTimer `merge` ereturn ((), ())
+    [ efRun (neiIterTimer nei) $ ((), ()) <$ moves `merge` ereturn mempty
+    , efRun (neiTransmitTimer nei) $ ((), ()) <$ efOut (neiTransmitTimer nei) `merge` ereturn ((), ())
     , mkSideEffect (uncurry sendPacket) (eMapMaybe neOutputPacket ne)
     , mkSideEffect (sendPacket letsPlayPacket) (neiNewPeerAddrs nei)
-    , mkSideEffect transmit (eZipByFst transmitTimer ne)
+    , mkSideEffect transmit (eZipByFst (efOut (neiTransmitTimer nei)) ne)
     ]
   , neoIsConnected = (> 1) . length . nePeers <$> ne
   }
   where
-    (setTransmitTimer, transmitTimer) = neiTransmitTimer nei
     transmit (_, n) =
       forM_ (nePeerAddrs n) (sendPacket (Moves (neQueue n)))
     letsPlayPacket :: NetEngPacket a i
     letsPlayPacket = Hello (neiPeerId nei) Let'sPlay
-    (setIterTimer, iterTimer) = neiIterTimer nei
     peerId = neiPeerId nei
     localMoves = neiLocalMoveUpdates nei
     sendPacket packet addr =
@@ -161,7 +159,7 @@ netEngine nei =
     ne = escanl (netEngineStep . netEngineCleanup) startEngine neInput
     neInput = foldl1 merge
       [ LocalMove <$> localMoves
-      , IterTimer <$ iterTimer
+      , IterTimer <$ efOut (neiIterTimer nei)
       , Recv <$> (psRecv . neiSocket) nei
       ]
     latencyIters = 10

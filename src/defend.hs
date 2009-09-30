@@ -8,7 +8,7 @@ import NetMatching
 import Networking
 import UI
 
-import Control.Applicative (Applicative(..), (<$))
+import Control.Applicative (Applicative(..))
 import Control.Monad (forM, join, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
@@ -24,15 +24,13 @@ import System.Random (randomRIO)
 
 import Prelude hiding (filter)
 
--- hlint says: Type eta reduce
--- but need an extension for that? TODO: check with web..
-type Timer a = EffectfulFunc Timeout () a
+type Timer = EffectFunc Timeout ()
 
 data DefEnv = DefEnv
   { defClientId :: Integer
   , defFont :: DefendFont
   , defSock :: PeakaSocket
-  , defHttp :: EffectfulFunc String (Maybe String) ()
+  , defHttp :: EffectFunc String (Maybe String) ()
   , defSrvRetryTimer :: Timer ()
   , defGameIterTimer :: Timer ()
   , defTransmitTimer :: Timer ()
@@ -192,6 +190,15 @@ chooseMove board src (dx, dy) =
       where
         (px, py) = board2screen pos
 
+setTimerTime :: Timeout -> Timer a -> EffectFunc () () a
+setTimerTime time timer =
+  EffectFunc
+  { efRun = efRun timer . fmap f
+  , efOut = efOut timer
+  }
+  where
+    f ((), x) = (time, x)
+
 game :: DefEnv -> UI -> (Event Image, SideEffect)
 game env ui =
   (image, effect)
@@ -214,18 +221,13 @@ game env ui =
       , neiPeerId = defClientId env
       , neiSocket = defSock env
       , neiNewPeerAddrs = matchingAddrs
-      , neiIterTimer =
-        (setGameIterTimer . ((50, ()) <$), gameIterTimer)
-      , neiTransmitTimer =
-        (setTransmitTimer . ((20, ()) <$), transmitTimer)
+      , neiIterTimer = setTimerTime 50 (defGameIterTimer env)
+      , neiTransmitTimer = setTimerTime 20 (defTransmitTimer env)
       }
     (matchingAddrs, matchingEffects) =
       netMatching (defSock env) (defHttp env)
-      (setMatchingTimer . ((1000, ()) <$), matchingTimer)
+      (setTimerTime 1000 (defSrvRetryTimer env))
       (neoIsConnected neo)
-    (setMatchingTimer, matchingTimer) = defSrvRetryTimer env
-    (setGameIterTimer, gameIterTimer) = defGameIterTimer env
-    (setTransmitTimer, transmitTimer) = defTransmitTimer env
     board = escanl doMove chessStart . eFlatten . neoMove $ neo
     procDst brd src = join . fmap (chooseMove brd src)
     doMove brd (src, dst) =

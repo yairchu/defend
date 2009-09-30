@@ -19,9 +19,9 @@ import Control.Monad.Trans (lift)
 import Data.Char (chr)
 import Data.Function (fix)
 import Data.List (nub)
-import FRP.Peakachu (EffectfulFunc, Event)
+import FRP.Peakachu (EffectFunc, Event)
 import FRP.Peakachu.Backend.IO (
-  liftForkIO, mkCallbackEvent, mkEffectfulFunc)
+  liftForkIO, mkCallbackEvent, mkEffectFunc)
 import Network.BSD (getHostByName, getHostName, hostAddress)
 import Network.HTTP (getRequest, rspBody, simpleHTTP)
 import Network.Socket (
@@ -123,9 +123,9 @@ parseSockAddr text = do
     portText = drop 1 portText'
     ipBytesText = split '.' ipText
 
-httpGet :: IO (EffectfulFunc String (Maybe String) a)
+httpGet :: IO (EffectFunc String (Maybe String) a)
 httpGet =
-  mkEffectfulFunc go
+  mkEffectFunc go
   where
     go uri = do
       liftForkIO

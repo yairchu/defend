@@ -8,7 +8,7 @@ import NetMatching
 import Networking
 import UI
 
-import Control.Applicative (Applicative(..))
+import Control.Applicative (Applicative(..), (<$>))
 import Control.Monad (forM, join, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
@@ -62,8 +62,8 @@ glStyle = do
   hint PolygonSmooth $= Nicest
   blend $= Enabled
 
-draw :: DefEnv -> (Board, (Selection, DrawPos)) -> Image
-draw env (board, ((dragSrc, dragDst), (cx, cy))) =
+draw :: DefEnv -> Board -> Selection -> DrawPos -> Maybe PieceSide -> Image
+draw env board (dragSrc, dragDst) (cx, cy) me =
   Image $ do
     glStyle
     blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
@@ -78,9 +78,6 @@ draw env (board, ((dragSrc, dragDst), (cx, cy))) =
     unless (srcFirst dragDst) $ drawCursor dragSrc
   where
     font = defFont env
-    me
-      | 0 == defClientId env `mod` 2 = Just Black
-      | otherwise = Just White
     srcFirst Nothing = True
     srcFirst (Just dst) = cursorDist dragSrc < cursorDist dst
     cursorDist = cursorDist' . board2screen
@@ -115,7 +112,8 @@ draw env (board, ((dragSrc, dragDst), (cx, cy))) =
           forM [c, d, b, a] . vert $ pieceSize * 0.125
     pieceSize = 0.9
     vis =
-      maybe [] (`visibleSquares` board) me
+      maybe allBoard (`visibleSquares` board) me
+    allBoard = [(x, y) | x <- [0..7], y <- [0..7]]
     drawBoard =
       forM_ vis $ \(bx, by) -> do
         let
@@ -248,10 +246,13 @@ game env ui =
       fmap (snd . fst) .
       efilter moveFilter $
       eWithPrev selectionRaw
-    image = fmap (draw env) .
-      ezip board .
-      ezip selection .
-      mouseMotionEvent $ ui
+    mySide = calcSide <$> neoPeers neo
+    calcSide peers
+      | 1 == length peers = Nothing
+      | defClientId env == minimum peers = Just Black
+      | otherwise = Just White
+    image =
+      draw env <$> board <*> selection <*> mouseMotionEvent ui <*> mySide
     effect = mconcat
       [ neoSideEffect neo
       , matchingEffects

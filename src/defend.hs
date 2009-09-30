@@ -159,7 +159,7 @@ draw env board (dragSrc, dragDst) (cx, cy) me =
         forM_ (tail points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
     pieceUnderCursor =
-      filter ((/= Just False) . (`fmap` me) . (==) . pieceSide) $
+      filter ((/= Just False) . (<$> me) . (==) . pieceSide) $
       pieceAt board dragSrc
     curPix =
       case pieceUnderCursor of
@@ -180,8 +180,8 @@ maybeMinimumOn f =
 
 chooseMove :: Board -> BoardPos -> DrawPos -> Maybe (BoardPos, Board)
 chooseMove board src (dx, dy) =
-  join .
-  fmap (maybeMinimumOn (dist . fst) . possibleMoves board) $
+  join $
+  maybeMinimumOn (dist . fst) . possibleMoves board <$>
   pieceAt board src
   where
     dist pos =
@@ -214,9 +214,9 @@ game env ui =
     selectionRaw =
       edrop (1::Int) .
       escanl drag (Up, undefined) $
-      ezip (keyState (MouseButton LeftButton) ui) (mouseMotionEvent ui)
+      (,) <$> keyState (MouseButton LeftButton) ui <*> mouseMotionEvent ui
     neo = netEngine NetEngineInput
-      { neiLocalMoveUpdates = fmap (:) queuedMoves
+      { neiLocalMoveUpdates = (:) <$> queuedMoves
       , neiPeerId = defClientId env
       , neiSocket = defSock env
       , neiNewPeerAddrs = matchingAddrs
@@ -234,18 +234,13 @@ game env ui =
         Nothing -> brd
         Just r -> snd r
     selection =
-      fmap proc .
-      ezip board $
-      fmap snd selectionRaw
-      where
-        proc (brd, (src, dst)) =
-          (src, fmap fst (procDst brd src dst))
+      proc <$> board <*> selectionRaw
+    proc brd (_, (src, dst)) =
+      (src, fst <$> procDst brd src dst)
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
     queuedMoves =
-      fmap (snd . fst) .
-      efilter moveFilter $
-      eWithPrev selectionRaw
+      snd . fst <$> efilter moveFilter (eWithPrev selectionRaw)
     mySide = calcSide <$> neoPeers neo
     calcSide peers
       | 1 == length peers = Nothing
@@ -324,12 +319,8 @@ prog env = do
   introImage <- intro $ defFont env
   drawTime <- drawingTime 0.1
   let
-    image =
-      runEventZip $
-      EventZip gameImage `mappend`
-      EventZip introImage
-    imageSamp =
-      fmap snd $ eZipByFst drawTime image
+    image = mappend <$> gameImage <*> introImage
+    imageSamp = snd <$> eZipByFst drawTime image
   return (imageSamp, gameEffect)
 
 -- more options at http://www.voip-info.org/wiki/view/STUN
@@ -351,8 +342,8 @@ main :: IO ()
 main = do
   initialWindowSize $= Size 600 600
   initialDisplayCapabilities $=
-    [With DisplayRGB
-    ,Where DisplaySamples IsAtLeast 2
+    [ With DisplayRGB
+    , Where DisplaySamples IsAtLeast 2
     ]
   initEnv >>= run . prog
 

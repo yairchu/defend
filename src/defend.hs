@@ -79,8 +79,8 @@ draw env (board, ((dragSrc, dragDst), (cx, cy))) =
   where
     font = defFont env
     me
-      | 0 == defClientId env `mod` 2 = Black
-      | otherwise = White
+      | 0 == defClientId env `mod` 2 = Just Black
+      | otherwise = Just White
     srcFirst Nothing = True
     srcFirst (Just dst) = cursorDist dragSrc < cursorDist dst
     cursorDist = cursorDist' . board2screen
@@ -114,7 +114,8 @@ draw env (board, ((dragSrc, dragDst), (cx, cy))) =
           \((a, b), (c, d)) ->
           forM [c, d, b, a] . vert $ pieceSize * 0.125
     pieceSize = 0.9
-    vis = visibleSquares me board
+    vis =
+      maybe [] (`visibleSquares` board) me
     drawBoard =
       forM_ vis $ \(bx, by) -> do
         let
@@ -160,7 +161,7 @@ draw env (board, ((dragSrc, dragDst), (cx, cy))) =
         forM_ (tail points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
     pieceUnderCursor =
-      filter ((== me) . pieceSide) $
+      filter ((/= Just False) . (`fmap` me) . (==) . pieceSide) $
       pieceAt board dragSrc
     curPix =
       case pieceUnderCursor of

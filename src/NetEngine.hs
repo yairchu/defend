@@ -41,10 +41,11 @@ data NetEngineInput moveType idType = NetEngineInput
   , neiTransmitTimer :: EffectFunc () () ()
   }
 
-data NetEngineOutput moveType = NetEngineOutput
+data NetEngineOutput moveType idType = NetEngineOutput
   { neoMove :: Event moveType
   , neoSideEffect :: SideEffect
   , neoIsConnected :: Event Bool
+  , neoPeers :: Event [idType]
   }
 
 data NetEngEvent a
@@ -131,7 +132,7 @@ netEngineInitialQueue peerId latencyIters =
 
 netEngine ::
   forall a i. (Monoid a, Ord i, Read a, Read i, Show a, Show i) =>
-  NetEngineInput a i -> NetEngineOutput a
+  NetEngineInput a i -> NetEngineOutput a i
 netEngine nei =
   NetEngineOutput
   { neoMove = eMapMaybe neOutputMove ne
@@ -143,6 +144,7 @@ netEngine nei =
     , mkSideEffect transmit (eZipByFst (efOut (neiTransmitTimer nei)) ne)
     ]
   , neoIsConnected = (> 1) . length . nePeers <$> ne
+  , neoPeers = nePeers <$> ne
   }
   where
     transmit (_, n) =

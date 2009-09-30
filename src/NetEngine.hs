@@ -58,7 +58,7 @@ data NetEngPacket m i
   | Hello i HelloType
   deriving (Read, Show)
 
-data HelloType = Let'sPlay | We'reOn
+data HelloType = LetsPlay | WereOn
   deriving (Read, Show, Eq)
 
 netEngineStep ::
@@ -89,7 +89,7 @@ netEngineNextIter ne =
   where
     moveKey = (iter + neLatencyIters ne, nePeerId ne)
     iter = neGameIteration ne
-    moveKeys = ((,) iter) <$> nePeers ne
+    moveKeys = (,) iter <$> nePeers ne
     peerMoves = 
       mconcat <$>
       sequence ((`lookup` neQueue ne) <$> moveKeys)
@@ -115,8 +115,8 @@ netEngineProcPacket ne (Hello peer hType) peerAddr
     , neGameIteration = 0
     , neQueue = netEngineInitialQueue (nePeerId ne) (neLatencyIters ne)
     , neOutputPacket = do
-        guard $ hType == Let'sPlay
-        return (Hello (nePeerId ne) We'reOn, peerAddr)
+        guard $ hType == LetsPlay
+        return (Hello (nePeerId ne) WereOn, peerAddr)
     }
 
 netEngineCleanup :: NetEngine a i -> NetEngine a i
@@ -150,7 +150,7 @@ netEngine nei =
     transmit (_, n) =
       forM_ (nePeerAddrs n) (sendPacket (Moves (neQueue n)))
     letsPlayPacket :: NetEngPacket a i
-    letsPlayPacket = Hello (neiPeerId nei) Let'sPlay
+    letsPlayPacket = Hello (neiPeerId nei) LetsPlay
     peerId = neiPeerId nei
     localMoves = neiLocalMoveUpdates nei
     sendPacket packet addr =

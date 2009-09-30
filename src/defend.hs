@@ -217,7 +217,7 @@ game env ui =
       edrop (1::Int) .
       escanl drag (Up, undefined) $
       ezip (keyState (MouseButton LeftButton) ui) (mouseMotionEvent ui)
-    neo = netEngine $ NetEngineInput
+    neo = netEngine NetEngineInput
       { neiLocalMoveUpdates = fmap (:) queuedMoves
       , neiPeerId = defClientId env
       , neiSocket = defSock env
@@ -336,7 +336,7 @@ stunServer :: String
 stunServer = "stun.ekiga.net"
 
 initEnv :: IO DefEnv
-initEnv = do
+initEnv =
   pure DefEnv
     <*> randomRIO (0, 2^(128::Int))
     <*> (fmap loadFont . readFile =<< getDataFileName "data/defend.font")

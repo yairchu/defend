@@ -98,7 +98,7 @@ noMods :: Modifiers
 noMods = Modifiers Up Up Up
 
 snoc :: a -> [a] -> [a]
-snoc x xs = xs ++ [x]
+snoc x = (++ [x])
 
 addPoint :: Eq a => [[a]] -> a -> [[a]]
 addPoint [] x = [[x]]

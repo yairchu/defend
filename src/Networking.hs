@@ -46,7 +46,7 @@ mkPeakaSocket stunServer = do
     getHostAddrByName stunServer >>=
     createListenUdpSocket . SockAddrInet stunPort
   recvs <- recvFromE sock 1024
-  return $ PeakaSocket
+  return PeakaSocket
     { psSocket = sock
     , psAddresses = addrs
     , psRecv = recvs

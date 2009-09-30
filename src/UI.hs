@@ -25,7 +25,7 @@ eWithPrev :: Event a -> Event (a, a)
 eWithPrev =
   fmap f . edrop (2::Int) . escanl step []
   where
-    step xs x = x : take 1 xs
+    step xs = (: take 1 xs)
     f l = (l !! 1, head l)
 
 -- when idle (on IdleEvent), draw

@@ -9,7 +9,7 @@ import Networking
 import UI
 
 import Control.Applicative (Applicative(..), (<$>))
-import Control.Monad (forM, join, when, unless)
+import Control.Monad (forM, guard, join, when, unless)
 import Data.Foldable (foldl', forM_)
 import Data.Char (toLower)
 import Data.List.Class (filter)
@@ -17,7 +17,7 @@ import Data.Map ((!))
 import Data.Monoid
 import Data.Time.Clock
 import FRP.Peakachu
-import FRP.Peakachu.Backend.GLUT
+import FRP.Peakachu.Backend.GLUT hiding (draw)
 import FRP.Peakachu.Backend.Time
 import Graphics.UI.GLUT
 import System.Random (randomRIO)
@@ -208,9 +208,9 @@ game env ui =
       (s, (spos, dst))
       where
         spos = screen2board c
-        dst
-          | s == Up = Nothing
-          | otherwise = Just c
+        dst = do
+          guard $ s == Down
+          return c
     selectionRaw =
       edrop (1::Int) .
       escanl drag (Up, undefined) $
@@ -236,7 +236,8 @@ game env ui =
     selection =
       proc <$> board <*> selectionRaw
     proc brd (_, (src, dst)) =
-      (src, fst <$> procDst brd src dst)
+      ( src
+      , fst <$> (dst >>= chooseMove brd src))
     moveFilter ((Down, _), (Up, _)) = True
     moveFilter _ = False
     queuedMoves =

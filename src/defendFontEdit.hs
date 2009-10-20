@@ -1,13 +1,18 @@
 import Geometry
-import UI
 
+import Control.Applicative
+import Control.Category
 import Control.Monad
 import Data.Map (Map, findWithDefault, insert)
 import Data.Monoid
 import FRP.Peakachu
+import FRP.Peakachu.Program
+import FRP.Peakachu.Backend
 import FRP.Peakachu.Backend.File
 import FRP.Peakachu.Backend.GLUT
-import Graphics.UI.GLUT
+import Graphics.UI.GLUT hiding (Program)
+
+import Prelude hiding ((.), id)
 
 gridRadius :: Int
 gridRadius = 4
@@ -21,8 +26,46 @@ adjustWithDef :: (Monoid a, Ord k) => (a -> a) -> k -> Map k a -> Map k a
 adjustWithDef func key src =
   insert key (func (findWithDef key src)) src
 
-draw :: (Map String [[DrawPos]], (String, DrawPos)) -> Image
-draw (font, (text, cpos@(cx, cy))) =
+toGrid :: DrawPos -> DrawPos
+toGrid (x, y) =
+  (t x, t y)
+  where
+    t =
+      (/ fromIntegral gridRadius) .
+      fromIntegral .
+      (round :: GLfloat -> Int) .
+      (* fromIntegral gridRadius)
+
+snoc :: a -> [a] -> [a]
+snoc x = (++ [x])
+
+addPoint :: Eq a => [[a]] -> a -> [[a]]
+addPoint [] x = [[x]]
+addPoint ([] : ps) x = [x] : ps
+addPoint (ys : ps) x
+  | x `elem` ys = [] : ys : ps
+  | otherwise = snoc x ys : ps
+
+data MyIn = Glut (GlutToProgram ()) | FileI (FileToProgram ())
+data MyOut = GlutO (ProgramToGlut ()) | FileO (ProgramToFile ())
+
+mouseMotionEvent :: Program MyIn (GLfloat, GLfloat)
+mouseMotionEvent =
+  mapMaybeS f
+  where
+    f (Glut (MouseMotionEvent x y)) = Just (x, y)
+    f _ = Nothing
+
+typedText :: Program MyIn Char
+typedText =
+  mapMaybeS f
+  where
+    f (Glut (KeyboardMouseEvent
+      (Char c) Down (Modifiers Up Up Up) _)) = Just c
+    f _ = Nothing
+
+draw :: Map String [[DrawPos]] -> String -> DrawPos -> Image
+draw font text cpos@(cx, cy) =
   Image $ do
     color $ Color4 0.1 0.3 0.1 (1 :: GLfloat)
     renderPrimitive Triangles .
@@ -53,115 +96,79 @@ draw (font, (text, cpos@(cx, cy))) =
         vertex $ Vertex2 x (y-s)
         vertex $ Vertex2 (x+s) y
         vertex $ Vertex2 x (y+s)
-    gridLines :: [GLfloat]
     gridLines = map ((/ fromIntegral gridRadius) . fromIntegral) [-gridRadius..gridRadius]
 
-toGrid :: DrawPos -> DrawPos
-toGrid (x, y) =
-  (t x, t y)
+data MyMid
+  = AText String
+  | APos DrawPos
+  | AClick MouseButton
+  | AFont (Map String [[DrawPos]])
+  | ADoLoad | ADoSave
+
+gameProc :: Program MyIn MyOut
+gameProc =
+  mconcat
+  [ (GlutO . DrawImage <$>) $ draw
+    <$> mapMaybeS aFont
+    <*> mapMaybeS aText
+    <*> mapMaybeS aPos
+  , mapMaybeS id . (doLoad <$> id <*> mapMaybeS aText)
+  , mapMaybeS id . (doSave <$> id <*> mapMaybeS aText <*> mapMaybeS aFont)
+  ]
+  . mconcat
+  [ id
+  , AFont <$> font
+  ]
+  . mconcat
+  [ AText <$> scanlS textStep [] . typedText
+  , APos . toGrid <$> mouseMotionEvent
+  , AClick <$> mapMaybeS clicksFunc
+  , ADoLoad <$ mapMaybeS (clicka (Char 'l') (Modifiers Up Up Down))
+  , ADoSave <$ mapMaybeS (clicka (Char 's') (Modifiers Up Up Down))
+  , AFont . read <$> mapMaybeS fileData
+  ]
   where
-    t =
-      (/ fromIntegral gridRadius) .
-      fromIntegral .
-      (round :: GLfloat -> Int) .
-      (* fromIntegral gridRadius)
-
-eZipFstTimes :: Event a -> Event b -> Event (a, b)
-eZipFstTimes primary other =
-  fmap m .
-  efilter f .
-  eWithPrev .
-  (`ezip` other) .
-  escanl step Nothing $ primary
-  where
-    step Nothing x = Just (False, x)
-    step (Just (b, _)) y = Just (not b, y)
-    f ((Just (x, _), _), (Just (y, _), _)) = x /= y
-    f ((Nothing, _), (Just _, _)) = True
-    f _ = False
-    m (_, (bx, y)) =
-      (x, y)
-      where
-        Just (_, x) = bx
-
-atPress :: Key -> Modifiers -> Event a -> UI -> Event a
-atPress key modi event =
-  fmap snd .
-  (`eZipFstTimes` event) .
-  efilter f .
-  glutKeyboardMouseEvent
-  where
-    f (k, Down, m, _) = k == key && m == modi
-    f _ = False
-
-noMods :: Modifiers
-noMods = Modifiers Up Up Up
-
-snoc :: a -> [a] -> [a]
-snoc x = (++ [x])
-
-addPoint :: Eq a => [[a]] -> a -> [[a]]
-addPoint [] x = [[x]]
-addPoint ([] : ps) x = [x] : ps
-addPoint (ys : ps) x
-  | x `elem` ys = [] : ys : ps
-  | otherwise = snoc x ys : ps
-
-typedText :: UI -> Event Char
-typedText =
-  fmap m .
-  efilter f .
-  glutKeyboardMouseEvent
-  where
-    f (Char _, Down, Modifiers Up Up Up, _) = True
-    f _ = False
-    m (Char c, _, _, _) = c
-    m _ = '#' -- should never get here
-
-game :: EffectFunc FilePath String () -> UI -> (Event Image, SideEffect)
-game fileReader = do
-  mouse <- fmap (fmap toGrid) mouseMotionEvent
-  chars <- typedText
-  let
-    text = escanl tstep [] chars
-    tstep "" '\DEL' = ""
-    tstep xs '\DEL' = init xs
-    tstep "" '\b' = ""
-    tstep xs '\b' = init xs
-    tstep xs x = snoc x xs
-    textNMouse = ezip text mouse
-    clicks but =
-      fmap (fmap ((,) but)) $ atPress (MouseButton but) noMods textNMouse
-    filename = fmap (++ ".font") text
-    altMod = Modifiers Up Up Down -- ctrl doesn't seem to work
-  lClicks <- clicks LeftButton
-  rClicks <- clicks RightButton
-  let
+    fileData (FileI (FileData x ())) = Just x
+    fileData _ = Nothing
+    doLoad ADoLoad x =
+      Just . FileO $ ReadFile (x ++ ".font") ()
+    doLoad _ _ = Nothing
+    doSave ADoSave fn fnt =
+      Just . FileO $ WriteFile (fn ++ ".font") (show fnt) ()
+    doSave _ _ _ = Nothing
+    aText (AText x) = Just x
+    aText _ = Nothing
+    aPos (APos x) = Just x
+    aPos _ = Nothing
+    aFont (AFont x) = Just x
+    aFont _ = Nothing
+    textStep "" '\DEL' = ""
+    textStep xs '\DEL' = init xs
+    textStep "" '\b' = ""
+    textStep xs '\b' = init xs
+    textStep xs x = snoc x xs
+    clicka key mods
+      (Glut (KeyboardMouseEvent k Down m _))
+      | k == key && m == mods = Just ()
+      | otherwise = Nothing
+    clicka _ _ _ = Nothing
+    clicksFunc
+      (Glut
+      (KeyboardMouseEvent (MouseButton b) Down
+      (Modifiers Up Up Up) _)) = Just b
+    clicksFunc _ = Nothing
     font =
-      escanl step mempty .
-      runEventMerge .
-      mappend (EventMerge (fmap (Left . read . fst) (efOut fileReader))) .
-      fmap Right $
-      mappend (EventMerge lClicks) (EventMerge rClicks)
-    step cur (Right (but, (key, point))) =
-      adjustWithDef (func but) key cur
-      where
-        func LeftButton = (`addPoint` point)
-        func _ =
-          ([] :) . filter (not . null) .
-          filter (notElem point)
-    step _ (Left x) = x
-    image =
-      fmap draw .
-      ezip font $ textNMouse
-  doLoad <-
-    efRun fileReader . fmap (flip (,) ()) .
-    atPress (Char 'l') altMod filename
-  save <-
-    writeFileE .
-    atPress (Char 's') altMod
-    (ezip filename (fmap show font))
-  return (image, save `mappend` doLoad)
+      scanlS fontStep mempty .
+      ((,,) <$> id <*> mapMaybeS aText <*> mapMaybeS aPos)
+    fontStep prev (AClick LeftButton, text, pos) =
+      adjustWithDef (`addPoint` pos) text prev
+    fontStep prev (AClick _, text, pos) =
+      adjustWithDef
+      (([] :) . filter (not . null) .
+      filter (notElem pos))
+      text prev
+    fontStep _ (AFont x, _, _) = x
+    fontStep prev _ = prev
 
 main :: IO ()
 main = do
@@ -170,5 +177,15 @@ main = do
     [With DisplayRGB
     ,Where DisplaySamples IsAtLeast 2
     ]
-  run . game =<< readFileE
+  let
+    backend =
+      mconcat
+      [ fmap Glut . mapSink fDraw $ glut
+      , fmap FileI . mapSink fFile $ fileB
+      ]
+    fDraw (GlutO x) = Just x
+    fDraw _ = Nothing
+    fFile (FileO x) = Just x
+    fFile _ = Nothing
+  runProgram backend gameProc
 

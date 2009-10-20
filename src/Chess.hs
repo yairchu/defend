@@ -9,12 +9,12 @@ import Prelude hiding (all, any, null)
 
 data PieceType =
   Pawn | Knight | Bishop | Rook | Queen | King
-  deriving (Eq, Show)
+  deriving (Eq, Read, Show)
 
 type BoardPos = (Integer, Integer)
 
 data PieceSide = Black | White
-  deriving Eq
+  deriving (Eq, Read, Show)
 
 data Piece = Piece {
   pieceSide :: PieceSide,

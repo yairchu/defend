@@ -2,12 +2,12 @@ import Geometry
 
 import Control.Applicative
 import Control.Category
+import Control.FilterCategory
 import Control.Monad
 import Data.Map (Map, findWithDefault, insert)
 import Data.Monoid
 import FRP.Peakachu
 import FRP.Peakachu.Program
-import FRP.Peakachu.Backend
 import FRP.Peakachu.Backend.File
 import FRP.Peakachu.Backend.GLUT
 import Graphics.UI.GLUT hiding (Program)
@@ -48,21 +48,6 @@ addPoint (ys : ps) x
 
 data MyIn = Glut (GlutToProgram ()) | FileI (FileToProgram ())
 data MyOut = GlutO (ProgramToGlut ()) | FileO (ProgramToFile ())
-
-mouseMotionEvent :: Program MyIn (GLfloat, GLfloat)
-mouseMotionEvent =
-  mapMaybeS f
-  where
-    f (Glut (MouseMotionEvent x y)) = Just (x, y)
-    f _ = Nothing
-
-typedText :: Program MyIn Char
-typedText =
-  mapMaybeS f
-  where
-    f (Glut (KeyboardMouseEvent
-      (Char c) Down (Modifiers Up Up Up) _)) = Just c
-    f _ = Nothing
 
 draw :: Map String [[DrawPos]] -> String -> DrawPos -> Image
 draw font text cpos@(cx, cy) =
@@ -105,36 +90,47 @@ data MyMid
   | AFont (Map String [[DrawPos]])
   | ADoLoad | ADoSave
 
+-- ridArr
+ra :: (FilterCategory cat, Functor (cat a)) => (a -> Maybe b) -> cat a b
+ra = mapMaybeC
+
 gameProc :: Program MyIn MyOut
 gameProc =
   mconcat
-  [ (GlutO . DrawImage <$>) $ draw
-    <$> mapMaybeS aFont
-    <*> mapMaybeS aText
-    <*> mapMaybeS aPos
-  , mapMaybeS id . (doLoad <$> id <*> mapMaybeS aText)
-  , mapMaybeS id . (doSave <$> id <*> mapMaybeS aText <*> mapMaybeS aFont)
+  [ GlutO . DrawImage <$>
+    (draw <$> ra aFont <*> ra aText <*> ra aPos)
+  , FileO <$>
+    (rid . (doLoad <$> id <*> ra aText))
+    `mappend`
+    (rid . (doSave <$> id <*> ra aText <*> ra aFont))
   ]
   . mconcat
   [ id
-  , AFont <$> font
+  , AFont <$> 
+    scanlS fontStep mempty .
+    ((,,) <$> id <*> ra aText <*> ra aPos)
   ]
   . mconcat
-  [ AText <$> scanlS textStep [] . typedText
-  , APos . toGrid <$> mouseMotionEvent
-  , AClick <$> mapMaybeS clicksFunc
-  , ADoLoad <$ mapMaybeS (clicka (Char 'l') (Modifiers Up Up Down))
-  , ADoSave <$ mapMaybeS (clicka (Char 's') (Modifiers Up Up Down))
-  , AFont . read <$> mapMaybeS fileData
+  [ AText <$> scanlS textStep [] . ra typedText
+  , APos <$> toGrid <$> ra mouseMotion
+  , AClick <$> ra clicksFunc
+  , ADoLoad <$ ra (clicka (Char 'l') (Modifiers Up Up Down))
+  , ADoSave <$ ra (clicka (Char 's') (Modifiers Up Up Down))
+  , AFont <$> read <$> ra fileData
   ]
   where
+    typedText (Glut (KeyboardMouseEvent
+      (Char c) Down (Modifiers Up Up Up) _)) = Just c
+    typedText _ = Nothing
+    mouseMotion (Glut (MouseMotionEvent x y)) = Just (x, y)
+    mouseMotion _ = Nothing
     fileData (FileI (FileData x ())) = Just x
     fileData _ = Nothing
     doLoad ADoLoad x =
-      Just . FileO $ ReadFile (x ++ ".font") ()
+      Just $ ReadFile (x ++ ".font") ()
     doLoad _ _ = Nothing
     doSave ADoSave fn fnt =
-      Just . FileO $ WriteFile (fn ++ ".font") (show fnt) ()
+      Just $ WriteFile (fn ++ ".font") (show fnt) ()
     doSave _ _ _ = Nothing
     aText (AText x) = Just x
     aText _ = Nothing
@@ -157,9 +153,6 @@ gameProc =
       (KeyboardMouseEvent (MouseButton b) Down
       (Modifiers Up Up Up) _)) = Just b
     clicksFunc _ = Nothing
-    font =
-      scanlS fontStep mempty .
-      ((,,) <$> id <*> mapMaybeS aText <*> mapMaybeS aPos)
     fontStep prev (AClick LeftButton, text, pos) =
       adjustWithDef (`addPoint` pos) text prev
     fontStep prev (AClick _, text, pos) =
@@ -180,8 +173,8 @@ main = do
   let
     backend =
       mconcat
-      [ fmap Glut . mapSink fDraw $ glut
-      , fmap FileI . mapSink fFile $ fileB
+      [ Glut <$> glut . ra fDraw
+      , FileI <$> fileB . ra fFile
       ]
     fDraw (GlutO x) = Just x
     fDraw _ = Nothing

@@ -5,6 +5,7 @@ import Chess
 import Font
 import GameLogic
 import Geometry
+import Intro
 import NetEngine
 import NetMatching
 import Networking
@@ -35,12 +36,6 @@ import Prelude hiding ((.), filter, id)
 piecePix :: DefendFont -> PieceType -> Pix
 piecePix font x = font ! map toLower (show x)
 
-screen2board :: DrawPos -> BoardPos
-screen2board (cx, cy) =
-  (r cx, r cy)
-  where
-    r ca = round (4 * ca + 3.5)
-
 board2screen :: BoardPos -> DrawPos
 board2screen (bx, by) =
   (r bx, r by)
@@ -49,8 +44,8 @@ board2screen (bx, by) =
 
 type Selection = (BoardPos, BoardPos)
 
-glStyle :: IO ()
-glStyle = do
+glStyle :: Image
+glStyle = Image $ do
   cursor $= None
   lineSmooth $= Enabled
   polygonSmooth $= Enabled
@@ -61,7 +56,6 @@ glStyle = do
 draw :: DefendFont -> Board -> Selection -> DrawPos -> Maybe PieceSide -> Image
 draw font board (dragSrc, dragDst) (cx, cy) me =
   Image $ do
-    glStyle
     blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
     lighting $= Enabled
     light (Light 0) $= Enabled
@@ -334,56 +328,6 @@ game env ui =
       ]
 -}
 
-renderText :: DefendFont -> String -> [[DrawPos]]
-renderText font text =
-  concat . zipWith doLine lns $ zip rowCenters rowHeights
-  where
-    lns = lines text
-    rowHeights = map ((2 /) . fromIntegral . length) lns
-    top = sum rowHeights / 2
-    rowTops = scanl (-) top rowHeights
-    rowCenters = zipWith (flip (-) . (/ 2)) rowHeights rowTops
-    doLine line (mid, size) =
-      concat $ zipWith doLetter [(0 :: Int) ..] line
-      where
-        doLetter _ ' ' = []
-        doLetter off letter =
-          map (map (trans size (size * fromIntegral (2 * off + 1 - length line) / 2, mid))) . pixBody $ font ! [letter]
-    trans s (dx, dy) (sx, sy) = (dx+s*sx/2, dy+s*sy/2)
-
-relativeTime :: Program UTCTime NominalDiffTime
-relativeTime =
-  uncurry diffUTCTime <$> rid . scanlP step Nothing
-  where
-    step Nothing x = Just (x, x)
-    step (Just (_, start)) x = Just (x, start)
-
-intro :: DefendFont -> Program UTCTime Image
-intro font =
-  frame <$> relativeTime
-  where
-    frame t =
-      Image $ do
-        glStyle
-        lighting $= Disabled
-        blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
-        color $ Color4 0 0 0 (max 0 (4-f*0.3))
-        renderPrimitive Quads .
-          forM_ [(-1, -1), (-1, 1), (1, 1), (1, -1)] $ \(x, y) ->
-            vertex $ Vertex4 x y (0 :: GLfloat) 1
-        blendFunc $= (SrcAlpha, One)
-        color $ Color4 1 0.5 0.25 (1 - abs (0.5+f*0.1-1))
-        renderPrimitive Triangles .
-          forM_ (expandPolygon e =<< renderText font "defend\nthe king\nfrom forces\nof different") $ \(x, y) ->
-            vertex $ Vertex4 x y 0 z
-      where
-        f :: GLfloat
-        f = 5 * realToFrac t
-        z' = 2-f/5
-        z = 1+(3*z'^(3::Int)+z')/4
-        e' = f/90-0.1
-        e = (e'*e'*e'*100*3+e')/3.5
-
 {-
 prog :: DefEnv -> UI -> (Event Image, SideEffect)
 prog env = do
@@ -423,7 +367,7 @@ main = do
   font <- loadFont <$> (readFile =<< getDataFileName "data/defend.font")
   let
     program =
-      DrawImage <$>
+      DrawImage <$> mappend glStyle <$>
       (mappend <$> game font <*> intro font . arr fst)
       --intro font . arr fst
   runProgram (getTimeB . glut) program

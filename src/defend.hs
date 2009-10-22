@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 import Paths_DefendTheKing (getDataFileName)
 import Chess
 import Font
@@ -8,33 +10,27 @@ import NetMatching
 import Networking
 import UI
 
-import Control.Applicative (Applicative(..), (<$>))
-import Control.Monad (forM, guard, join, when, unless)
-import Data.Foldable (foldl', forM_)
+import Control.Applicative
+import Control.Category
+import Control.FilterCategory
+import Control.Monad (forM, forM_, guard, join, when, unless)
+import Data.ADT.Getters
+import Data.Foldable (foldl')
 import Data.Char (toLower)
 import Data.List.Class (filter)
 import Data.Map ((!))
+import Data.Maybe (fromMaybe)
 import Data.Monoid
 import Data.Time.Clock
 import FRP.Peakachu
-import FRP.Peakachu.Backend.GLUT hiding (draw)
+import FRP.Peakachu.Program
+import FRP.Peakachu.Backend.GLUT
+import FRP.Peakachu.Backend.GLUT.Getters
 import FRP.Peakachu.Backend.Time
-import Graphics.UI.GLUT
+import Graphics.UI.GLUT hiding (Program)
 import System.Random (randomRIO)
 
-import Prelude hiding (filter)
-
-type Timer = EffectFunc Timeout ()
-
-data DefEnv = DefEnv
-  { defClientId :: Integer
-  , defFont :: DefendFont
-  , defSock :: PeakaSocket
-  , defHttp :: EffectFunc String (Maybe String) ()
-  , defSrvRetryTimer :: Timer ()
-  , defGameIterTimer :: Timer ()
-  , defTransmitTimer :: Timer ()
-  }
+import Prelude hiding ((.), filter, id)
 
 piecePix :: DefendFont -> PieceType -> Pix
 piecePix font x = font ! map toLower (show x)
@@ -51,7 +47,7 @@ board2screen (bx, by) =
   where
     r ba = (fromIntegral ba - 3.5) / 4
 
-type Selection = (BoardPos, Maybe BoardPos)
+type Selection = (BoardPos, BoardPos)
 
 glStyle :: IO ()
 glStyle = do
@@ -62,8 +58,8 @@ glStyle = do
   hint PolygonSmooth $= Nicest
   blend $= Enabled
 
-draw :: DefEnv -> Board -> Selection -> DrawPos -> Maybe PieceSide -> Image
-draw env board (dragSrc, dragDst) (cx, cy) me =
+draw :: DefendFont -> Board -> Selection -> DrawPos -> Maybe PieceSide -> Image
+draw font board (dragSrc, dragDst) (cx, cy) me =
   Image $ do
     glStyle
     blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
@@ -73,13 +69,11 @@ draw env board (dragSrc, dragDst) (cx, cy) me =
     cullFace $= Just Front
     drawBoard
     mapM_ drawPiece . filter ((`elem` vis) . piecePos) $ boardPieces board
-    when (srcFirst dragDst) $ drawCursor dragSrc
-    forM_ dragDst drawCursor
-    unless (srcFirst dragDst) $ drawCursor dragSrc
+    when srcFirst $ drawCursor dragSrc
+    drawCursor dragDst
+    unless srcFirst $ drawCursor dragSrc
   where
-    font = defFont env
-    srcFirst Nothing = True
-    srcFirst (Just dst) = cursorDist dragSrc < cursorDist dst
+    srcFirst = cursorDist dragSrc < cursorDist dragDst
     cursorDist = cursorDist' . board2screen
     cursorDist' (x, y) = (cx-x)^(2::Int) + (cy-y)^(2::Int)
     headingUp = normal $ Normal3 0 0 (-1 :: GLfloat)
@@ -178,26 +172,111 @@ maybeMinimumOn f =
       | f y < f x = Just y
       | otherwise = Just x
 
+distance :: DrawPos -> DrawPos -> GLfloat
+distance (xA, yA) (xB, yB) =
+  join (*) (xA-xB) + join (*) (yA-yB)
+
 chooseMove :: Board -> BoardPos -> DrawPos -> Maybe (BoardPos, Board)
-chooseMove board src (dx, dy) =
+chooseMove board src drawPos =
   join $
-  maybeMinimumOn (dist . fst) . possibleMoves board <$>
+  maybeMinimumOn (distance drawPos . board2screen . fst) . possibleMoves board <$>
   pieceAt board src
-  where
-    dist pos =
-      (px-dx)^(2::Int) + (py-dy)^(2::Int)
-      where
-        (px, py) = board2screen pos
 
-setTimerTime :: Timeout -> Timer a -> EffectFunc () () a
-setTimerTime time timer =
-  EffectFunc
-  { efRun = efRun timer . fmap f
-  , efOut = efOut timer
-  }
+withPrev :: Program a (a, a)
+withPrev =
+  mapMaybeC (uncurry (liftA2 (,))) . scanlP step (Nothing, Nothing)
   where
-    f ((), x) = (time, x)
+    step (_, x) y = (x, Just y)
 
+prevP :: Program a a
+prevP = fst <$> withPrev
+
+keyState :: Key -> Program (GlutToProgram a) KeyState
+keyState key =
+  mconcat
+  [ singleValueP Up
+  , mapMaybeC f . cKeyboardMouseEvent
+  ]
+  where
+    f (k, s, _, _) = do
+      guard $ k == key
+      return s
+
+data MyLayer
+  = Glut (GlutToProgram ())
+  | ABoard Board
+  | ASelection BoardPos BoardPos
+  | AMove BoardPos BoardPos
+  | ASide (Maybe PieceSide)
+  | AMousePos DrawPos
+$(mkADTGetterCats ''MyLayer)
+
+game :: DefendFont -> Program (UTCTime, GlutToProgram ()) Image
+game font =
+  (draw
+  <$> pure font
+  <*> cABoard
+  <*> cASelection
+  <*> cAMousePos
+  <*> cASide
+  )
+  . loopbackP (uncurry AMove <$> cAMove) (
+    mconcat
+    [ id
+    , rid . (aMove
+      <$> ((,) <$> id <*> prevP)
+        . (const id <$> id <*> keyState (MouseButton LeftButton) . cGlut)
+      <*> prevP . cASelection
+      )
+    ]
+    . mconcat
+    [ id
+    , rid . (aSelection
+      <$> cABoard
+      <*> arr snd . scanlP drag (Up, (0, 0)) .
+        ((,)
+        <$> keyState (MouseButton LeftButton) . cGlut
+        <*> rid . (selectionSrc
+          <$> cABoard
+          <*> cASide
+          <*> cAMousePos
+          )
+        )
+      <*> cAMousePos
+      )
+    ]
+    . mconcat
+    [ id
+    , ABoard <$> scanlP doMove chessStart . cAMove
+    , ASide <$> singleValueP (Just White)
+    , AMousePos <$> mconcat
+        [singleValueP (0, 0), cMouseMotionEvent . cGlut]
+    ]
+  )
+  . arr (Glut . snd)
+  where
+    aMove (u, d) (src, dst) = do
+      gUp u
+      gDown d
+      return $ AMove src dst
+    aSelection board src pos =
+      ASelection src . fst <$> chooseMove board src pos
+    doMove board (src, dst) =
+      fromMaybe board $
+      pieceAt board src >>= lookup dst . possibleMoves board
+    selectionSrc board side pos =
+      maybeMinimumOn
+      (distance pos . board2screen)
+      . fmap piecePos
+      . filter ((&&)
+        <$> (/= Just False) . (<$> side) . (==) . pieceSide
+        <*> canMove board)
+      $ boardPieces board
+    canMove board = not . null . possibleMoves board
+    drag (Down, pos) (Down, _) = (Down, pos)
+    drag _ x = x
+
+{-
 game :: DefEnv -> UI -> (Event Image, SideEffect)
 game env ui =
   (image, effect)
@@ -253,25 +332,7 @@ game env ui =
       [ neoSideEffect neo
       , matchingEffects
       ]
-
-zipRelTime :: Event a -> Event (NominalDiffTime, a)
-zipRelTime =
-  fmap f .
-  edrop (1 :: Int) .
-  escanl step Nothing .
-  zipTime
-  where
-    step Nothing (startTime, x) =
-      Just (startTime, startTime, x)
-    step (Just (startTime, _, _)) (now, x) =
-      Just (startTime, now, x)
-    f v =
-      (diffUTCTime now startTime, x)
-      where
-        Just (startTime, now, x) = v
-
-relTimeOf :: Event a -> Event NominalDiffTime
-relTimeOf = fmap fst . zipRelTime
+-}
 
 renderText :: DefendFont -> String -> [[DrawPos]]
 renderText font text =
@@ -290,9 +351,16 @@ renderText font text =
           map (map (trans size (size * fromIntegral (2 * off + 1 - length line) / 2, mid))) . pixBody $ font ! [letter]
     trans s (dx, dy) (sx, sy) = (dx+s*sx/2, dy+s*sy/2)
 
-intro :: DefendFont -> UI -> Event Image
+relativeTime :: Program UTCTime NominalDiffTime
+relativeTime =
+  uncurry diffUTCTime <$> rid . scanlP step Nothing
+  where
+    step Nothing x = Just (x, x)
+    step (Just (_, start)) x = Just (x, start)
+
+intro :: DefendFont -> Program UTCTime Image
 intro font =
-  fmap frame . relTimeOf
+  frame <$> relativeTime
   where
     frame t =
       Image $ do
@@ -302,18 +370,21 @@ intro font =
         color $ Color4 0 0 0 (max 0 (4-f*0.3))
         renderPrimitive Quads .
           forM_ [(-1, -1), (-1, 1), (1, 1), (1, -1)] $ \(x, y) ->
-            vertex $ Vertex4 x y (0 :: Float) 1
+            vertex $ Vertex4 x y (0 :: GLfloat) 1
         blendFunc $= (SrcAlpha, One)
         color $ Color4 1 0.5 0.25 (1 - abs (0.5+f*0.1-1))
         renderPrimitive Triangles .
           forM_ (expandPolygon e =<< renderText font "defend\nthe king\nfrom forces\nof different") $ \(x, y) ->
-            vertex $ Vertex4 x y 0 (3-f/5)
+            vertex $ Vertex4 x y 0 z
       where
         f :: GLfloat
         f = 5 * realToFrac t
+        z' = 2-f/5
+        z = 1+(3*z'^(3::Int)+z')/4
         e' = f/90-0.1
-        e = min e' 0 + max (e'-0.02) 0
+        e = (e'*e'*e'*100*3+e')/3.5
 
+{-
 prog :: DefEnv -> UI -> (Event Image, SideEffect)
 prog env = do
   (gameImage, gameEffect) <- game env
@@ -323,11 +394,13 @@ prog env = do
     image = mappend <$> gameImage <*> introImage
     imageSamp = snd <$> eZipByFst drawTime image
   return (imageSamp, gameEffect)
+-}
 
 -- more options at http://www.voip-info.org/wiki/view/STUN
 stunServer :: String
 stunServer = "stun.ekiga.net"
 
+{-
 initEnv :: IO DefEnv
 initEnv =
   pure DefEnv
@@ -338,6 +411,7 @@ initEnv =
     <*> setTimerEvent
     <*> setTimerEvent
     <*> setTimerEvent
+-}
 
 main :: IO ()
 main = do
@@ -346,5 +420,12 @@ main = do
     [ With DisplayRGB
     , Where DisplaySamples IsAtLeast 2
     ]
-  initEnv >>= run . prog
+  font <- loadFont <$> (readFile =<< getDataFileName "data/defend.font")
+  let
+    program =
+      DrawImage <$>
+      (mappend <$> game font <*> intro font . arr fst)
+      --intro font . arr fst
+  runProgram (getTimeB . glut) program
+  --initEnv >>= run . prog
 

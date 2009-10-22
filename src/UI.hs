@@ -1,14 +1,12 @@
-module UI (
-  drawingTime, eWithPrev, keyState
-  ) where
+module UI where
 
 import FRP.Peakachu
 import FRP.Peakachu.Backend.GLUT
-import FRP.Peakachu.Backend.Time (zipTime)
 import Data.Monoid
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime)
 import Graphics.UI.GLUT
 
+{-
 keyState :: Key -> UI -> Event KeyState
 keyState key =
   runEventMerge .
@@ -44,4 +42,4 @@ drawingTime framePerAtLeast =
       | otherwise = Just (False, prev)
     f (Just (True, now)) = Just now
     f _ = Nothing
-
+-}

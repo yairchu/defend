@@ -1,8 +1,5 @@
-module Networking (
-  PeakaSocket(..), mkPeakaSocket,
-  bindUdpAnyPort, createListenUdpSocket,
-  getHostAddrByName, httpGet,
-  parseSockAddr, recvFromE, stunPort
+module Networking
+  ( ProgToUdp(..), UdpToProg(..), udpB, httpGetB, parseSockAddr
   ) where
 
 import Parse (split)
@@ -12,16 +9,14 @@ import ParseStun (
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newMVar, readMVar)
-import Control.Concurrent.MVar.YC (writeMVar)
+import Control.Concurrent.MVar.YC (modifyMVarPure, writeMVar)
 import Control.Monad (forever, join, liftM2, unless, when, replicateM)
-import Control.Monad.Cont (ContT(..))
-import Control.Monad.Trans (lift)
 import Data.Char (chr)
 import Data.Function (fix)
 import Data.List (nub)
-import FRP.Peakachu (EffectFunc, Event)
-import FRP.Peakachu.Backend.IO (
-  liftForkIO, mkCallbackEvent, mkEffectFunc)
+import Data.Map ((!), insert)
+import Data.Monoid (Monoid(..))
+import FRP.Peakachu.Backend (Backend(..), Sink(..))
 import Network.BSD (getHostByName, getHostName, hostAddress)
 import Network.HTTP (getRequest, rspBody, simpleHTTP)
 import Network.Socket (
@@ -34,35 +29,70 @@ import Random (randomRIO)
 import System.IO.Error (isAlreadyInUseError, try)
 import Text.Read.HT (maybeRead)
 
-data PeakaSocket = PeakaSocket
-  { psSocket :: Socket
-  , psAddresses :: [SockAddr]
-  , psRecv :: Event (String, Int, SockAddr)
-  }
+data ProgToUdp a
+  = CreateUdpListenSocket String a
+  | SendTo String SockAddr a
 
-mkPeakaSocket :: String -> IO PeakaSocket
-mkPeakaSocket stunServer = do
-  (sock, addrs) <-
-    getHostAddrByName stunServer >>=
-    createListenUdpSocket . SockAddrInet stunPort
-  recvs <- recvFromE sock 1024
-  return PeakaSocket
-    { psSocket = sock
-    , psAddresses = addrs
-    , psRecv = recvs
+data UdpToProg a
+  = UdpSocketAddresses [SockAddr] a
+  | RecvFrom String SockAddr a
+
+udpB :: Ord a => Backend (ProgToUdp a) (UdpToProg a)
+udpB =
+  Backend $ \handler -> do
+    socketsVar <- newMVar mempty
+    let
+      consume (CreateUdpListenSocket stunServer tag) = do
+        forkIO $ do
+          (sock, addrs) <-
+            getHostAddrByName stunServer >>=
+            createListenUdpSocket . SockAddrInet stunPort
+          modifyMVarPure socketsVar (insert tag sock)
+          handler $ UdpSocketAddresses addrs tag
+          forever $ do
+            (msg, _, sender) <- recvFrom sock 1024
+            handler $ RecvFrom msg sender tag
+        return ()
+      consume (SendTo msg addr tag) = do
+        sockets <- readMVar socketsVar
+        sendTo (sockets ! tag) msg addr
+        return ()
+    return mempty
+      { sinkConsume = consume
+      }
+
+httpGetB :: Backend (String, a) (Maybe String, a)
+httpGetB =
+  Backend $ \handler ->
+    return mempty
+    { sinkConsume = consume handler
     }
+  where
+    consume handler (url, tag) = do
+      forkIO $ do
+        eresp <- simpleHTTP . getRequest $ url
+        case eresp of
+          Left _ -> handler (Nothing, tag)
+          Right resp -> handler (Just (rspBody resp), tag)
+      return ()
+
+getHostAddrByName :: String -> IO HostAddress
+getHostAddrByName =
+  fmap hostAddress . getHostByName
+
+getHostAddress :: IO HostAddress
+getHostAddress =
+  getHostName >>= getHostAddrByName
 
 stunPort :: PortNumber
 stunPort = fromInteger 3478
 
-maybeIO :: (IOError -> Bool) -> IO a -> IO (Maybe a)
-maybeIO isExpected =
-  join . fmap f . try
-  where
-    f (Right x) = return $ Just x
-    f (Left err)
-      | isExpected err = return Nothing
-      | otherwise = ioError err
+createListenUdpSocket :: SockAddr -> IO (Socket, [SockAddr])
+createListenUdpSocket stunServer = do
+  sock <- socket AF_INET Datagram 0
+  iAddr <- liftM2 SockAddrInet (bindUdpAnyPort sock) getHostAddress
+  eAddr <- udpGetInternetAddr stunServer sock
+  return (sock, nub [iAddr, eAddr])
 
 bindUdpAnyPort :: Socket -> IO PortNumber
 bindUdpAnyPort sock = do
@@ -73,14 +103,6 @@ bindUdpAnyPort sock = do
   case r of
     Nothing -> bindUdpAnyPort sock
     _ -> return portNum
-
-getHostAddrByName :: String -> IO HostAddress
-getHostAddrByName =
-  fmap hostAddress . getHostByName
-
-getHostAddress :: IO HostAddress
-getHostAddress =
-  getHostName >>= getHostAddrByName
 
 -- | Find out internet address outside of NAT
 -- using a stun server
@@ -105,12 +127,14 @@ udpGetInternetAddr stunServer sock = do
     fail "wrong response type"
   return address
 
-createListenUdpSocket :: SockAddr -> IO (Socket, [SockAddr])
-createListenUdpSocket stunServer = do
-  sock <- socket AF_INET Datagram 0
-  iAddr <- liftM2 SockAddrInet (bindUdpAnyPort sock) getHostAddress
-  eAddr <- udpGetInternetAddr stunServer sock
-  return (sock, nub [iAddr, eAddr])
+maybeIO :: (IOError -> Bool) -> IO a -> IO (Maybe a)
+maybeIO isExpected =
+  join . fmap f . try
+  where
+    f (Right x) = return $ Just x
+    f (Left err)
+      | isExpected err = return Nothing
+      | otherwise = ioError err
 
 parseSockAddr :: String -> Maybe SockAddr
 parseSockAddr text = do
@@ -122,21 +146,4 @@ parseSockAddr text = do
     (ipText, portText') = break (== ':') text
     portText = drop 1 portText'
     ipBytesText = split '.' ipText
-
-httpGet :: IO (EffectFunc String (Maybe String) a)
-httpGet =
-  mkEffectFunc go
-  where
-    go uri = do
-      liftForkIO
-      eresp <- lift . simpleHTTP $ getRequest uri
-      ContT $ case eresp of
-        Left _ -> ($ Nothing)
-        Right resp -> ($ Just (rspBody resp))
-
-recvFromE :: Socket -> Int -> IO (Event (String, Int, SockAddr))
-recvFromE sock size = do
-  (event, callback) <- mkCallbackEvent
-  forkIO . forever $ recvFrom sock size >>= callback
-  return event
 

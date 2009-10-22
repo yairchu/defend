@@ -22,11 +22,21 @@ Stability:           experimental
 Build-Type:          Simple
 Data-Files:          data/defend.font
 
+Executable defend
+  Executable:        defend
+  HS-Source-Dirs:    src
+  Main-IS:           defend.hs
+  Other-Modules:     Geometry, UI, Networking, ParseStun
+  Build-Depends:     base >=2 && < 5, peakachu, GLUT, containers,
+                     random, time, List, utility-ht, haskell98,
+                     network, HTTP, mtl, bytestring, binary,
+                     MaybeT, zlib
+  GHC-Options:       -O2 -Wall
 Executable defendFontEdit
   Executable:        defendFontEdit
   HS-Source-Dirs:    src
   Main-IS:           defendFontEdit.hs
-  Other-Modules:     Geometry, UI
+  Other-Modules:     Geometry
   Build-Depends:     base >=2 && < 5, peakachu, GLUT, containers
   GHC-Options:       -O2 -Wall
 

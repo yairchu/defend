@@ -10,13 +10,16 @@ import Control.Monad (guard, forM_)
 import Data.ByteString.Lazy.Char8 (pack, unpack)
 import Data.Map (Map, delete, fromList, insert, lookup, toList)
 import Data.Monoid (Monoid(..))
-import FRP.Peakachu (
-  EffectFunc(..), Event, SideEffect,
-  eMapMaybe, ereturn, escanl, eZipByFst, merge)
-import FRP.Peakachu.Backend.IO (mkSideEffect)
 import Network.Socket (SockAddr, sendTo)
 import Prelude hiding (lookup)
 
+{-
+data NetEngineInput moveType
+  = NeiLocalMoveUpdates moveType
+  | NeiPeerId
+-}
+
+{-
 type NEQueue moveType idType = Map (Integer, idType) moveType
 
 data NetEngine moveType idType = NetEngine
@@ -177,4 +180,4 @@ netEngine nei =
       , neOutputMove = Nothing
       , neOutputPacket = Nothing
       }
-
+-}

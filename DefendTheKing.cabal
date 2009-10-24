@@ -28,7 +28,7 @@ Executable defend
   Main-IS:           defend.hs
   Other-Modules:     Geometry, UI, Networking, ParseStun, Intro, Draw
   Build-Depends:     base >=2 && < 5, peakachu, GLUT, containers,
-                     random, time, List, utility-ht, haskell98,
+                     random, time, utility-ht, haskell98,
                      network, HTTP, mtl, bytestring, binary,
                      MaybeT, zlib
   GHC-Options:       -O2 -Wall

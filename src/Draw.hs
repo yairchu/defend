@@ -8,13 +8,11 @@ import GameLogic (visibleSquares)
 import Geometry
 
 import Control.Applicative
-import Control.Monad (forM, forM_, unless, when)
+import Control.Monad (forM, forM_, guard, unless, when)
 import Data.Char (toLower)
-import Data.List.Class (filter)
 import Data.Map ((!))
 import FRP.Peakachu.Backend.GLUT (Image(..))
 import Graphics.UI.GLUT
-import Prelude hiding (filter)
 
 piecePix :: DefendFont -> PieceType -> Pix
 piecePix font x = font ! map toLower (show x)
@@ -127,9 +125,10 @@ draw font board (dragSrc, dragDst) (cx, cy) me =
             _ -> Color4 0 1 0 0.5
         forM_ (tail points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
-    pieceUnderCursor =
-      filter ((/= Just False) . (<$> me) . (==) . pieceSide) $
-      pieceAt board dragSrc
+    pieceUnderCursor = do
+      r <- pieceAt board dragSrc
+      guard . not . (== Just False) . (<$> me) . (==) . pieceSide $ r
+      return r
     curPix =
       case pieceUnderCursor of
         Nothing -> [square]

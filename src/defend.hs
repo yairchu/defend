@@ -22,19 +22,40 @@ import FRP.Peakachu
 import FRP.Peakachu.Program
 import FRP.Peakachu.Backend.GLUT
 import FRP.Peakachu.Backend.GLUT.Getters
+import FRP.Peakachu.Backend.StdIO
 import FRP.Peakachu.Backend.Time
 import Graphics.UI.GLUT hiding (Program)
 import System.Random (randomRIO)
 
 import Prelude hiding ((.), id)
 
+data MyTimers
+  = TimerMatching
+  | TimerNetEngine
+  deriving Show
+$(mkADTGetterCats ''MyTimers)
+
+data MyInput
+  = IGlut UTCTime (GlutToProgram MyTimers)
+  | IUdp (UdpToProg ())
+  | IHttp (Maybe String)
+$(mkADTGetterCats ''MyInput)
+
+data MyOutput
+  = OGlut (ProgramToGlut MyTimers)
+  | OUdp (ProgToUdp ())
+  | OHttp String
+  | OPrint String
+$(mkADTGetterCats ''MyOutput)
+
 data MyLayer
-  = Glut (GlutToProgram ())
+  = Glut (GlutToProgram MyTimers)
+  | AIntro Image
   | ABoard Board
   | ASelection BoardPos BoardPos
   | AMove BoardPos BoardPos
   | ASide (Maybe PieceSide)
-  | AMousePos DrawPos
+  | AOut MyOutput
 $(mkADTGetterCats ''MyLayer)
 
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
@@ -67,36 +88,72 @@ prevP = fst <$> withPrev
 
 keyState :: Key -> Program (GlutToProgram a) KeyState
 keyState key =
-  mconcat
-  [ singleValueP Up
-  , mapMaybeC f . cKeyboardMouseEvent
-  ]
+  mappend
+  (singleValueP Up)
+  (mapMaybeC f . cKeyboardMouseEvent)
   where
     f (k, s, _, _) = do
       guard $ k == key
       return s
 
-game :: DefendFont -> Program (UTCTime, GlutToProgram ()) Image
+addP :: (Category cat, Monoid (cat a a)) => cat a a -> cat a a
+addP = mappend id
+
+game :: DefendFont -> Program MyInput MyOutput
 game font =
-  (draw
-  <$> pure font
-  <*> cABoard
-  <*> cASelection
-  <*> cAMousePos
-  <*> cASide
-  )
-  . loopbackP (uncurry AMove <$> cAMove) (
-    mconcat
-    [ id
-    , rid . (aMove
+  mconcat
+  [ OGlut . DrawImage . mappend glStyle
+    <$> (mappend
+      <$> (draw
+        <$> pure font
+        <*> cABoard
+        <*> cASelection
+        <*> cMouseMotionEvent . cGlut
+        <*> cASide
+        )
+      <*> cAIntro
+      )
+  , cAOut
+  , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
+  ]
+  . mconcat
+  [ gameCore
+  , AIntro <$> intro font . arr fst . cIGlut
+  ]
+  where
+    gameCore =
+      -- loopback because board affects moves and vice versa
+      loopbackP (uncurry AMove <$> cAMove) (
+        addP calculateMoves
+        . addP calculateSelection
+        -- calculate board state
+        . addP (ABoard <$> scanlP doMove chessStart . cAMove)
+      )
+      . mconcat
+      [ ASide <$> singleValueP Nothing -- (Just White)
+      , Glut . snd <$> cIGlut
+      -- a fake initial mouse position
+      , singleValueP . Glut $ MouseMotionEvent 0 0
+      -- contact http server
+      , mconcat
+        [ AOut . OHttp . fst <$> cMOHttp
+        , (AOut . OGlut) (SetTimer 1000 TimerMatching) <$ cMOSetRetryTimer
+        , AOut . OPrint . ("Matching:" ++) . (++ "\n") . show <$> cMatchingResult
+        ]
+        . netMatching
+        . mconcat
+        [ arr (`MIHttp` ()) . cIHttp
+        , MITimerEvent () <$ cTimerMatching . cTimerEvent . arr snd . cIGlut
+        , uncurry DoMatching <$> cUdpSocketAddresses . cIUdp
+        ]
+      ]
+    calculateMoves =
+      (rid .) $ aMove
       <$> ((,) <$> id <*> prevP)
         . (const id <$> id <*> keyState (MouseButton LeftButton) . cGlut)
       <*> prevP . cASelection
-      )
-    ]
-    . mconcat
-    [ id
-    , rid . (aSelection
+    calculateSelection =
+      (rid .) $ aSelection
       <$> cABoard
       <*> arr snd . scanlP drag (Up, (0, 0)) .
         ((,)
@@ -104,22 +161,10 @@ game font =
         <*> rid . (selectionSrc
           <$> cABoard
           <*> cASide
-          <*> cAMousePos
+          <*> cMouseMotionEvent . cGlut
           )
         )
-      <*> cAMousePos
-      )
-    ]
-    . mconcat
-    [ id
-    , ABoard <$> scanlP doMove chessStart . cAMove
-    , ASide <$> singleValueP (Just White)
-    , AMousePos <$> mconcat
-        [singleValueP (0, 0), cMouseMotionEvent . cGlut]
-    ]
-  )
-  . arr (Glut . snd)
-  where
+      <*> cMouseMotionEvent . cGlut
     aMove (u, d) (src, dst) = do
       gUp u
       gDown d
@@ -203,19 +248,6 @@ game env ui =
 stunServer :: String
 stunServer = "stun.ekiga.net"
 
-{-
-initEnv :: IO DefEnv
-initEnv =
-  pure DefEnv
-    <*> randomRIO (0, 2^(128::Int))
-    <*> (fmap loadFont . readFile =<< getDataFileName "data/defend.font")
-    <*> mkPeakaSocket stunServer
-    <*> httpGet
-    <*> setTimerEvent
-    <*> setTimerEvent
-    <*> setTimerEvent
--}
-
 main :: IO ()
 main = do
   initialWindowSize $= Size 600 600
@@ -225,10 +257,12 @@ main = do
     ]
   font <- loadFont <$> (readFile =<< getDataFileName "data/defend.font")
   let
-    program =
-      DrawImage <$> mappend glStyle <$>
-      (mappend <$> game font <*> intro font . arr fst)
-      --intro font . arr fst
-  runProgram (getTimeB . glut) program
-  --initEnv >>= run . prog
+    backend =
+      mconcat
+      [ uncurry IGlut <$> getTimeB . glut . cOGlut
+      , IHttp . fst <$> httpGetB . arr (flip (,) ()) . cOHttp
+      , IUdp <$> udpB . cOUdp
+      , rid . arr (const Nothing) . stdoutB . cOPrint
+      ]
+  runProgram backend (game font)
 

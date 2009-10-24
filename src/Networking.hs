@@ -1,5 +1,9 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Networking
-  ( ProgToUdp(..), UdpToProg(..), udpB, httpGetB, parseSockAddr
+  ( ProgToUdp(..), UdpToProg(..)
+  , udpB, httpGetB, parseSockAddr
+  , cUdpSocketAddresses, cRecvFrom
   ) where
 
 import Parse (split)
@@ -10,7 +14,9 @@ import ParseStun (
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newMVar, readMVar)
 import Control.Concurrent.MVar.YC (modifyMVarPure, writeMVar)
+import Control.FilterCategory
 import Control.Monad (forever, join, liftM2, unless, when, replicateM)
+import Data.ADT.Getters
 import Data.Char (chr)
 import Data.Function (fix)
 import Data.List (nub)
@@ -36,6 +42,8 @@ data ProgToUdp a
 data UdpToProg a
   = UdpSocketAddresses [SockAddr] a
   | RecvFrom String SockAddr a
+  deriving Show
+$(mkADTGetterCats ''UdpToProg)
 
 udpB :: Ord a => Backend (ProgToUdp a) (UdpToProg a)
 udpB =

@@ -68,20 +68,19 @@ chooseMove board src drawPos =
   maybeMinimumOn (distance drawPos . board2screen . fst) . possibleMoves board <$>
   pieceAt board src
 
-withPrev :: Program a (a, a)
+withPrev :: MergeProgram a (a, a)
 withPrev =
-  mapMaybeC (uncurry (liftA2 (,))) . scanlP step (Nothing, Nothing)
+  mapMaybeC (uncurry (liftA2 (,)))
+  . MergeProg (scanlP step (Nothing, Nothing))
   where
     step (_, x) y = (x, Just y)
 
-prevP :: Program a a
-prevP = fst <$> withPrev
+prevP :: MergeProgram a a
+prevP = arr fst . withPrev
 
-keyState :: Key -> Program (GlutToProgram a) KeyState
+keyState :: Key -> GlutToProgram a -> Maybe KeyState
 keyState key =
-  -- mappend
-  -- (singleValueP Up)
-  mapMaybeC $ gKeyboardMouseEvent >=> f
+  gKeyboardMouseEvent >=> f
   where
     f (k, s, _, _) = do
       guard $ k == key
@@ -90,12 +89,18 @@ keyState key =
 addP :: (Category cat, Monoid (cat a a)) => cat a a -> cat a a
 addP = mappend id
 
+singleValueP :: b -> MergeProgram a b
+singleValueP = MergeProg . runAppendProg . return
+
+atP :: (FilterCategory cat, Functor (cat a)) => (a -> Maybe b) -> cat a b
+atP = mapMaybeC
+
 game :: Integer -> DefendFont -> Program MyNode MyNode
 game myPeerId font =
   runMergeProg $
   mconcat
   [ OGlut . DrawImage . mappend glStyle
-    <$> {- (mappend
+    <$> (mappend
       <$> (draw
         <$> pure font
         <*> lstP gABoard
@@ -103,61 +108,53 @@ game myPeerId font =
         <*> lstP (gGlut >=> gMouseMotionEvent)
         <*> lstP gASide
         )
-      <*> -} MergeProg (intro font) . arr fst . lstP gIGlut
---      )
-  -- , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
+      <*> MergeProg (intro font) . arr fst . lstP gIGlut
+      )
+  , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
   ]
-{-
   -- loopback because board affects moves and vice versa
-  . loopbackP (uncurry AMove <$> cAMove) (
+  . inMergeProgram1 (loopbackP (uncurry AMove <$> atP gAMove)) (
     addP calculateMoves
     . addP calculateSelection
     -- calculate board state
-    . addP (ABoard <$> scanlP doMove chessStart . cAMove)
+    . addP (ABoard <$> MergeProg (scanlP doMove chessStart) . atP gAMove)
   )
   . mconcat
   [ id
-  -- , ASide <$> singleValueP Nothing -- (Just White)
+  , ASide <$> singleValueP Nothing -- (Just White)
   -- contact http server
   , mconcat
-    [ OHttp . fst <$> cMOHttp
-    , OGlut (SetTimer 1000 TimerMatching) <$ cMOSetRetryTimer
-    , OPrint . ("Matching:" ++) . (++ "\n") . show <$> cMatchingResult
+    [ OHttp . fst <$> atP gMOHttp
+    , OGlut (SetTimer 1000 TimerMatching) <$ atP gMOSetRetryTimer
+    , OPrint . ("Matching:" ++) . (++ "\n") . show <$> atP gMatchingResult
     ]
-    . netMatching
+    . MergeProg netMatching
     . mconcat
-    [ arr (`MIHttp` ()) . cIHttp
-    , MITimerEvent () <$ cTimerMatching . cTimerEvent . arr snd . cIGlut
-    , uncurry DoMatching <$> cUdpSocketAddresses . cIUdp
+    [ arr (`MIHttp` ()) . atP gIHttp
+    , MITimerEvent () <$ atP (gGlut >=> gTimerEvent >=> gTimerMatching)
+    , uncurry DoMatching <$> atP (gIUdp >=> gUdpSocketAddresses)
     ]
   ]
--}
   where
     gGlut = (fmap . fmap) snd gIGlut
-{-
     calculateMoves =
-      (rid .) $ aMove
-      <$> ((,) <$> id <*> prevP)
-        . (const id <$> id <*> keyState (MouseButton LeftButton) . cGlut)
-      <*> prevP . cASelection
+      uncurry AMove
+      <$ (mappend <$> atP gUp <*> atP gDown . prevP)
+        . atP (gGlut >=> keyState (MouseButton LeftButton))
+      <*> prevP . lstP gASelection
     calculateSelection =
       (rid .) $ aSelection
-      <$> cABoard
-      <*> arr snd . scanlP drag (Up, (0, 0)) .
+      <$> lstP gABoard
+      <*> arr snd . MergeProg (scanlP drag (Up, (0, 0))) .
         ((,)
-        <$> keyState (MouseButton LeftButton) . cGlut
+        <$> lstP (gGlut >=> keyState (MouseButton LeftButton))
         <*> rid . (selectionSrc
-          <$> cABoard
-          <*> cASide
-          <*> cMouseMotionEvent . cGlut
+          <$> lstP gABoard
+          <*> lstP gASide
+          <*> lstP (gGlut >=> gMouseMotionEvent)
           )
         )
-      <*> cMouseMotionEvent . cGlut
--}
-    aMove (u, d) (src, dst) = do
-      gUp u
-      gDown d
-      return $ AMove src dst
+      <*> lstP (gGlut >=> gMouseMotionEvent)
     aSelection board src pos =
       ASelection src . fst <$> chooseMove board src pos
     doMove board (src, dst) =

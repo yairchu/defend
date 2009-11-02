@@ -78,9 +78,12 @@ withPrev =
 prevP :: MergeProgram a a
 prevP = arr fst . withPrev
 
-keyState :: Key -> GlutToProgram a -> Maybe KeyState
+singleValueP :: b -> MergeProgram a b
+singleValueP = MergeProg . runAppendProg . return
+
+keyState :: Key -> MergeProgram (GlutToProgram a) KeyState
 keyState key =
-  gKeyboardMouseEvent >=> f
+  (lstPs . Just) Up (gKeyboardMouseEvent >=> f)
   where
     f (k, s, _, _) = do
       guard $ k == key
@@ -88,9 +91,6 @@ keyState key =
 
 addP :: (Category cat, Monoid (cat a a)) => cat a a -> cat a a
 addP = mappend id
-
-singleValueP :: b -> MergeProgram a b
-singleValueP = MergeProg . runAppendProg . return
 
 atP :: (FilterCategory cat, Functor (cat a)) => (a -> Maybe b) -> cat a b
 atP = mapMaybeC
@@ -105,7 +105,7 @@ game myPeerId font =
         <$> pure font
         <*> lstP gABoard
         <*> lstP gASelection
-        <*> lstP (gGlut >=> gMouseMotionEvent)
+        <*> mouseMotion
         <*> lstP gASide
         )
       <*> MergeProg (intro font) . arr fst . lstP gIGlut
@@ -136,25 +136,26 @@ game myPeerId font =
     ]
   ]
   where
+    mouseMotion = (lstPs . Just) (0, 0) (gGlut >=> gMouseMotionEvent)
     gGlut = (fmap . fmap) snd gIGlut
     calculateMoves =
       uncurry AMove
       <$ (mappend <$> atP gUp <*> atP gDown . prevP)
-        . atP (gGlut >=> keyState (MouseButton LeftButton))
+        . keyState (MouseButton LeftButton) . lstP gGlut
       <*> prevP . lstP gASelection
     calculateSelection =
       (rid .) $ aSelection
       <$> lstP gABoard
       <*> arr snd . MergeProg (scanlP drag (Up, (0, 0))) .
         ((,)
-        <$> lstP (gGlut >=> keyState (MouseButton LeftButton))
+        <$> keyState (MouseButton LeftButton) . lstP gGlut
         <*> rid . (selectionSrc
           <$> lstP gABoard
           <*> lstP gASide
-          <*> lstP (gGlut >=> gMouseMotionEvent)
+          <*> mouseMotion
           )
         )
-      <*> lstP (gGlut >=> gMouseMotionEvent)
+      <*> mouseMotion
     aSelection board src pos =
       ASelection src . fst <$> chooseMove board src pos
     doMove board (src, dst) =

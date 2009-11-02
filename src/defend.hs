@@ -12,7 +12,7 @@ import Networking
 import Control.Applicative
 import Control.Category
 import Control.FilterCategory
-import Control.Monad (guard, join)
+import Control.Monad ((>=>), guard, join)
 import Data.ADT.Getters
 import Data.Foldable (foldl')
 import Data.Maybe (fromMaybe)
@@ -33,7 +33,7 @@ data MyTimers
   = TimerMatching
   | TimerNetEngine
   deriving Show
-$(mkADTGetterCats ''MyTimers)
+$(mkADTGetters ''MyTimers)
 
 data MyNode
   = IGlut UTCTime (GlutToProgram MyTimers)
@@ -47,7 +47,7 @@ data MyNode
   | ASelection BoardPos BoardPos
   | AMove BoardPos BoardPos
   | ASide (Maybe PieceSide)
-$(mkADTGetterCats ''MyNode)
+$(mkADTGetters ''MyNode)
 
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
 maybeMinimumOn f =
@@ -81,7 +81,7 @@ keyState :: Key -> Program (GlutToProgram a) KeyState
 keyState key =
   -- mappend
   -- (singleValueP Up)
-  (mapMaybeC f . cKeyboardMouseEvent)
+  mapMaybeC $ gKeyboardMouseEvent >=> f
   where
     f (k, s, _, _) = do
       guard $ k == key
@@ -95,18 +95,16 @@ game myPeerId font =
   runMergeProg $
   mconcat
   [ OGlut . DrawImage . mappend glStyle
-    <$> undefined
-
-{-(mappend
+    <$> {- (mappend
       <$> (draw
         <$> pure font
-        <*> cABoard
-        <*> cASelection
-        <*> cMouseMotionEvent . cGlut
-        <*> cASide
+        <*> lstP gABoard
+        <*> lstP gASelection
+        <*> lstP (gGlut >=> gMouseMotionEvent)
+        <*> lstP gASide
         )
-      <*> MergeProg (intro font . arr fst . cIGlut)
-      )-}
+      <*> -} MergeProg (intro font) . arr fst . lstP gIGlut
+--      )
   -- , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
   ]
 {-
@@ -135,7 +133,7 @@ game myPeerId font =
   ]
 -}
   where
-    cGlut = snd <$> cIGlut
+    gGlut = (fmap . fmap) snd gIGlut
 {-
     calculateMoves =
       (rid .) $ aMove
@@ -251,10 +249,10 @@ main = do
   let
     backend =
       mconcat
-      [ uncurry IGlut <$> getTimeB . glut . cOGlut
-      , IHttp . fst <$> httpGetB . arr (flip (,) ()) . cOHttp
-      , IUdp <$> udpB . cOUdp
-      , rid . arr (const Nothing) . stdoutB . cOPrint
+      [ uncurry IGlut <$> getTimeB . glut . mapMaybeC gOGlut
+      , IHttp . fst <$> httpGetB . arr (flip (,) ()) . mapMaybeC gOHttp
+      , arr IUdp . udpB . mapMaybeC gOUdp
+      , rid . arr (const Nothing) . stdoutB . mapMaybeC gOPrint
       ]
   runProgram backend (game peerId font)
 

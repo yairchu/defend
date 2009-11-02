@@ -26,7 +26,7 @@ data MatchingOut a
   | MOSetRetryTimer a
   | MOHttp String a
   deriving Show
-$(mkADTGetterCats ''MatchingOut)
+$(mkADTGetters ''MatchingOut)
 
 netMatching :: Ord a => Program (MatchingIn a) (MatchingOut a)
 netMatching =

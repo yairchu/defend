@@ -7,7 +7,6 @@ import Control.Category
 import Control.FilterCategory
 import Control.Monad
 import Data.ADT.Getters
-import Data.Generics.Aliases (orElse)
 import Data.Map (Map, findWithDefault, insert)
 import Data.Monoid
 import FRP.Peakachu
@@ -102,18 +101,14 @@ draw font text cpos@(cx, cy) =
         vertex $ Vertex2 x (y+s)
     gridLines = map ((/ fromIntegral gridRadius) . fromIntegral) [-gridRadius..gridRadius]
 
-lst :: (a -> Maybe b) -> MergeProgram a b
-lst f =
-  rid . MergeProg (scanlP (flip orElse) Nothing) . arr f
-
 gameProc :: Program MyIn MyOut
 gameProc =
   runMergeProg $
   mconcat
-  [ GlutO . DrawImage <$> (draw <$> lst gAFont <*> lst gAText <*> lst gAPos)
+  [ GlutO . DrawImage <$> (draw <$> lstP gAFont <*> lstP gAText <*> lstP gAPos)
   , FileO <$> mconcat
-    [ doLoad <$ mapMaybeC gADoLoad <*> lst gAText
-    , doSave <$ mapMaybeC gADoSave <*> lst gAText <*> lst gAFont
+    [ doLoad <$ mapMaybeC gADoLoad <*> lstP gAText
+    , doSave <$ mapMaybeC gADoSave <*> lstP gAText <*> lstP gAFont
     ]
   ]
   . mconcat
@@ -125,7 +120,7 @@ gameProc =
         [ Left <$> mapMaybeC gAClick
         , Right <$> mapMaybeC gAFont
         ]
-      <*> lst gAText <*> lst gAPos
+      <*> lstP gAText <*> lstP gAPos
     )
   ]
   . mconcat
@@ -135,8 +130,8 @@ gameProc =
     , ADoSave <$ mapMaybeC (clicka (Char 's') (Modifiers Up Up Down))
     , AClick <$> mapMaybeC clicksFunc
     ] . mapMaybeC (gGlut >=> gKeyboardMouseEvent)
-  , APos <$> toGrid <$> lst (gGlut >=> gMouseMotionEvent)
-  , AFont <$> read . fst <$> lst (gFileI >=> gFileData)
+  , APos <$> toGrid <$> lstP (gGlut >=> gMouseMotionEvent)
+  , AFont <$> read . fst <$> lstP (gFileI >=> gFileData)
   ]
   where
     typedText (c, s, m, _) = do

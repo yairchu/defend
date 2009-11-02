@@ -111,16 +111,22 @@ gameProc =
   runMergeProg $
   mconcat
   [ GlutO . DrawImage <$> (draw <$> lst gAFont <*> lst gAText <*> lst gAPos)
-  , FileO <$> rid . mconcat
-    [ doLoad <$> id <*> lst gAText
-    , doSave <$> id <*> lst gAText <*> lst gAFont
+  , FileO <$> mconcat
+    [ doLoad <$ mapMaybeC gADoLoad <*> lst gAText
+    , doSave <$ mapMaybeC gADoSave <*> lst gAText <*> lst gAFont
     ]
   ]
   . mconcat
   [ id
   , AFont <$> 
     MergeProg (scanlP fontStep mempty) .
-    ((,,) <$> id <*> lst gAText <*> lst gAPos)
+    ( (,,)
+      <$> mconcat
+        [ Left <$> mapMaybeC gAClick
+        , Right <$> mapMaybeC gAFont
+        ]
+      <*> lst gAText <*> lst gAPos
+    )
   ]
   . mconcat
   [ mconcat
@@ -137,10 +143,8 @@ gameProc =
       guard $ m == Modifiers Up Up Up
       gDown s
       gChar c
-    doLoad e x =
-      ReadFile (x ++ ".font") () <$ gADoLoad e
-    doSave e fn fnt =
-      WriteFile (fn ++ ".font") (show fnt) () <$ gADoSave e
+    doLoad x = ReadFile (x ++ ".font") ()
+    doSave fn fnt = WriteFile (fn ++ ".font") (show fnt) ()
     textStep "" '\DEL' = ""
     textStep xs '\DEL' = init xs
     textStep "" '\b' = ""
@@ -152,23 +156,17 @@ gameProc =
     clicksFunc (key, state, _, _) = do
       gDown state
       gMouseButton key
-    fontStep prev (AClick LeftButton, text, pos) =
+    fontStep prev (Left LeftButton, text, pos) =
       adjustWithDef (`addPoint` pos) text prev
-    fontStep prev (AClick _, text, pos) =
+    fontStep prev (Left _, text, pos) =
       adjustWithDef
       (([] :) . filter (not . null) .
       filter (notElem pos))
       text prev
-    fontStep _ (AFont x, _, _) = x
-    fontStep prev _ = prev
-
---removeWarnings :: Program MidLayer ()
---removeWarnings =
---  runMergeProg $ mconcat [ cADoLoad, cADoSave, () <$ cAClick ]
+    fontStep _ (Right x, _, _) = x
 
 main :: IO ()
 main = do
-  --when False . undefined $ removeWarnings
   initialWindowSize $= Size 600 600
   initialDisplayCapabilities $=
     [With DisplayRGB

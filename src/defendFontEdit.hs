@@ -128,7 +128,7 @@ gameProc =
     , ADoLoad <$ mapMaybeC (clicka (Char 'l') (Modifiers Up Up Down))
     , ADoSave <$ mapMaybeC (clicka (Char 's') (Modifiers Up Up Down))
     , AClick <$> mapMaybeC clicksFunc
-    ] . lst gKeyboardMouseEvent . lst gGlut
+    ] . mapMaybeC (gGlut >=> gKeyboardMouseEvent)
   , APos <$> toGrid <$> lst (gGlut >=> gMouseMotionEvent)
   , AFont <$> read . fst <$> lst (gFileI >=> gFileData)
   ]

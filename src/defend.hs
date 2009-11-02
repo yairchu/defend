@@ -25,6 +25,7 @@ import FRP.Peakachu.Backend.GLUT.Getters
 import FRP.Peakachu.Backend.StdIO
 import FRP.Peakachu.Backend.Time
 import Graphics.UI.GLUT hiding (Program)
+import Network.Socket (SockAddr)
 import System.Random (randomRIO)
 
 import Prelude hiding ((.), id)
@@ -45,8 +46,10 @@ data MyNode
   | OPrint String
   | ABoard Board
   | ASelection BoardPos BoardPos
-  | AMove BoardPos BoardPos
+  | AQueueMove BoardPos BoardPos
+  | AMoves [(BoardPos, BoardPos)]
   | ASide (Maybe PieceSide)
+  | AMatching [SockAddr]
 $(mkADTGetters ''MyNode)
 
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
@@ -76,7 +79,7 @@ withPrev =
     step (_, x) y = (x, Just y)
 
 prevP :: MergeProgram a a
-prevP = arr fst . withPrev
+prevP = arrC fst . withPrev
 
 singleValueP :: b -> MergeProgram a b
 singleValueP = MergeProg . runAppendProg . return
@@ -99,7 +102,8 @@ game :: Integer -> DefendFont -> Program MyNode MyNode
 game myPeerId font =
   runMergeProg $
   mconcat
-  [ OGlut . DrawImage . mappend glStyle
+  [ id
+  , OGlut . DrawImage . mappend glStyle
     <$> (mappend
       <$> (draw
         <$> pure font
@@ -108,45 +112,65 @@ game myPeerId font =
         <*> mouseMotion
         <*> lstP gASide
         )
-      <*> MergeProg (intro font) . arr fst . lstP gIGlut
+      <*> MergeProg (intro font) . arrC fst . lstP gIGlut
       )
   , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
   ]
   -- loopback because board affects moves and vice versa
-  . inMergeProgram1 (loopbackP (uncurry AMove <$> atP gAMove)) (
-    addP calculateMoves
+  . inMergeProgram1 (loopbackP (AMoves <$> atP gAMoves)) (
+    addP neteng
+    . addP calculateMoves
     . addP calculateSelection
     -- calculate board state
-    . addP (ABoard <$> MergeProg (scanlP doMove chessStart) . atP gAMove)
+    . addP
+      ( ABoard <$> MergeProg (scanlP doMoves chessStart)
+        . atP gAMoves
+      )
   )
   . mconcat
   [ id
   , ASide <$> singleValueP Nothing -- (Just White)
   -- contact http server
-  , mconcat
-    [ OHttp . fst <$> atP gMOHttp
-    , OGlut (SetTimer 1000 TimerMatching) <$ atP gMOSetRetryTimer
-    , OPrint . ("Matching:" ++) . (++ "\n") . show <$> atP gMatchingResult
-    ]
-    . MergeProg netMatching
-    . mconcat
-    [ arr (`MIHttp` ()) . atP gIHttp
-    , MITimerEvent () <$ atP (gGlut >=> gTimerEvent >=> gTimerMatching)
-    , uncurry DoMatching <$> atP (gIUdp >=> gUdpSocketAddresses)
-    ]
+  , OPrint . (++ "\n") . show <$> atP (gGlut >=> gTimerEvent)
+  , matching
   ]
   where
+    neteng =
+      mconcat
+      [ AMoves <$> atP gNEOMove
+      , OGlut (SetTimer 50 TimerNetEngine) <$ atP gNEOSetIterTimer
+      ]
+      . netEngine myPeerId
+      . mconcat
+      [ NEIMatching <$> atP gAMatching
+      , NEIMove . return <$> atP gAQueueMove
+      , NEIIterTimer <$ atP (gGlut >=> gTimerEvent >=> gTimerNetEngine)
+      , singleValueP NEIIterTimer
+      ]
+    matching =
+      mconcat
+      [ OHttp . fst <$> atP gMOHttp
+      , OGlut (SetTimer 1000 TimerMatching) <$ atP gMOSetRetryTimer
+      , OPrint . ("Matching:" ++) . (++ "\n") . show <$> atP gMatchingResult
+      , AMatching . fst <$> atP gMatchingResult
+      ]
+      . MergeProg netMatching
+      . mconcat
+      [ arrC (`MIHttp` ()) . atP gIHttp
+      , MITimerEvent () <$ atP (gGlut >=> gTimerEvent >=> gTimerMatching)
+      , uncurry DoMatching <$> atP (gIUdp >=> gUdpSocketAddresses)
+      ]
     mouseMotion = (lstPs . Just) (0, 0) (gGlut >=> gMouseMotionEvent)
     gGlut = (fmap . fmap) snd gIGlut
     calculateMoves =
-      uncurry AMove
+      uncurry AQueueMove
       <$ (mappend <$> atP gUp <*> atP gDown . prevP)
         . keyState (MouseButton LeftButton) . lstP gGlut
       <*> prevP . lstP gASelection
     calculateSelection =
       (rid .) $ aSelection
       <$> lstP gABoard
-      <*> arr snd . MergeProg (scanlP drag (Up, (0, 0))) .
+      <*> arrC snd . MergeProg (scanlP drag (Up, (0, 0))) .
         ((,)
         <$> keyState (MouseButton LeftButton) . lstP gGlut
         <*> rid . (selectionSrc
@@ -158,6 +182,7 @@ game myPeerId font =
       <*> mouseMotion
     aSelection board src pos =
       ASelection src . fst <$> chooseMove board src pos
+    doMoves = foldl doMove
     doMove board (src, dst) =
       fromMaybe board $
       pieceAt board src >>= lookup dst . possibleMoves board
@@ -172,64 +197,6 @@ game myPeerId font =
     canMove board = not . null . possibleMoves board
     drag (Down, pos) (Down, _) = (Down, pos)
     drag _ x = x
-
-{-
-game :: DefEnv -> UI -> (Event Image, SideEffect)
-game env ui =
-  (image, effect)
-  where
-    drag (Down, (x, _)) (Down, c) =
-      (Down, (x, Just c))
-    drag _ (s, c) =
-      (s, (spos, dst))
-      where
-        spos = screen2board c
-        dst = do
-          guard $ s == Down
-          return c
-    selectionRaw =
-      edrop (1::Int) .
-      escanl drag (Up, undefined) $
-      (,) <$> keyState (MouseButton LeftButton) ui <*> mouseMotionEvent ui
-    neo = netEngine NetEngineInput
-      { neiLocalMoveUpdates = (:) <$> queuedMoves
-      , neiPeerId = defClientId env
-      , neiSocket = defSock env
-      , neiNewPeerAddrs = matchingAddrs
-      , neiIterTimer = setTimerTime 50 (defGameIterTimer env)
-      , neiTransmitTimer = setTimerTime 20 (defTransmitTimer env)
-      }
-    (matchingAddrs, matchingEffects) =
-      netMatching (defSock env) (defHttp env)
-      (setTimerTime 1000 (defSrvRetryTimer env))
-      (neoIsConnected neo)
-    board = escanl doMove chessStart . eFlatten . neoMove $ neo
-    procDst brd src = join . fmap (chooseMove brd src)
-    doMove brd (src, dst) =
-      case procDst brd src dst of
-        Nothing -> brd
-        Just r -> snd r
-    selection =
-      proc <$> board <*> selectionRaw
-    proc brd (_, (src, dst)) =
-      ( src
-      , fst <$> (dst >>= chooseMove brd src))
-    moveFilter ((Down, _), (Up, _)) = True
-    moveFilter _ = False
-    queuedMoves =
-      snd . fst <$> efilter moveFilter (eWithPrev selectionRaw)
-    mySide = calcSide <$> neoPeers neo
-    calcSide peers
-      | 1 == length peers = Nothing
-      | defClientId env == minimum peers = Just Black
-      | otherwise = Just White
-    image =
-      draw env <$> board <*> selection <*> mouseMotionEvent ui <*> mySide
-    effect = mconcat
-      [ neoSideEffect neo
-      , matchingEffects
-      ]
--}
 
 -- more options at http://www.voip-info.org/wiki/view/STUN
 stunServer :: String
@@ -248,9 +215,9 @@ main = do
     backend =
       mconcat
       [ uncurry IGlut <$> getTimeB . glut . mapMaybeC gOGlut
-      , IHttp . fst <$> httpGetB . arr (flip (,) ()) . mapMaybeC gOHttp
-      , arr IUdp . udpB . mapMaybeC gOUdp
-      , rid . arr (const Nothing) . stdoutB . mapMaybeC gOPrint
+      , IHttp . fst <$> httpGetB . arrC (flip (,) ()) . mapMaybeC gOHttp
+      , arrC IUdp . udpB . mapMaybeC gOUdp
+      , rid . arrC (const Nothing) . stdoutB . mapMaybeC gOPrint
       ]
   runProgram backend (game peerId font)
 

@@ -1,11 +1,19 @@
-module NetEngine where
+{-# LANGUAGE TemplateHaskell #-}
+
+module NetEngine
+  ( NetEngineOutput(..), NetEngineInput(..)
+  , netEngine
+  , gNEOMove, gNEOPacket, gNEOSetIterTimer
+  ) where
 
 import Networking
 
 import Control.Category
+import Control.FilterCategory
 import Codec.Compression.Zlib (decompress, compress)
 import Control.Applicative ((<$), (<$>))
 import Control.Monad (guard, forM_)
+import Data.ADT.Getters
 import Data.ByteString.Lazy.Char8 (pack, unpack)
 import Data.Map (Map, delete, fromList, insert, lookup, toList)
 import Data.Monoid (Monoid(..))
@@ -21,16 +29,20 @@ data NetEngineState moveType idType = NetEngineState
   , neWaitingForPeers :: Bool
   , neGameIteration :: Integer
   , neOutputMove :: moveType
+  , neLatencyIters :: Integer
+  , neMyPeerId :: idType
   }
 
 data NetEngineOutput moveType
   = NEOMove moveType
   | NEOPacket String SockAddr
   | NEOSetIterTimer
+$(mkADTGetters ''NetEngineOutput)
 
 data NetEngineInput moveType
   = NEIMove moveType
   | NEIPacket String SockAddr
+  | NEIMatching [SockAddr]
   | NEIIterTimer
   | NEITransmitTimer
 
@@ -42,25 +54,70 @@ data NetEngPacket m i
   | Hello i HelloType
   deriving (Read, Show)
 
-netEngine
-  :: (Monoid moveType, Ord peerIdType)
-  => peerIdType
-  -> Program (NetEngineInput moveType) (NetEngineOutput moveType)
-netEngine myPeerId =
-  undefined
-  . scanlP step NetEngineState
-  { neLocalMove = mempty
-  , neQueue = mempty
-  , nePeers = [myPeerId]
-  , nePeerAddrs = mempty
-  , neWaitingForPeers = False
-  , neGameIteration = 0
-  , neOutputMove = mempty
-  }
-  where
-    step state (NEIMove move) =
-      state { neLocalMove = mappend move . neLocalMove $ state }
+atP :: (FilterCategory cat, Functor (cat a)) => (a -> Maybe b) -> cat a b
+atP = mapMaybeC
 
+singleValueP :: b -> MergeProgram a b
+singleValueP = MergeProg . runAppendProg . return
+
+netEngine
+  :: ( Monoid moveType, Ord peerIdType
+     , Read moveType, Read peerIdType
+     )
+  => peerIdType
+  -> MergeProgram (NetEngineInput moveType) (NetEngineOutput moveType)
+netEngine myPeerId =
+  mconcat
+  [ mconcat
+    [ NEOMove <$> arrC neLocalMove -- neOutputMove
+    , singleValueP NEOSetIterTimer
+    ]
+    . MergeProg (scanlP netEngineStep start)
+--  , atP gNEIMatching
+  ]
+  where
+    start = NetEngineState
+      { neLocalMove = mempty
+      , neQueue = mempty
+      , nePeers = [myPeerId]
+      , nePeerAddrs = mempty
+      , neWaitingForPeers = False
+      , neGameIteration = 0
+      , neOutputMove = mempty
+      , neLatencyIters = 5
+      , neMyPeerId = myPeerId
+      }
+
+netEngineStep ::
+  (Monoid a, Ord i, Read a, Read i) =>
+  NetEngineState a i -> NetEngineInput a -> NetEngineState a i
+netEngineStep state (NEIMove move) =
+  state { neLocalMove = mappend move . neLocalMove $ state }
+netEngineStep state NEIIterTimer = netEngineNextIter state
+netEngineStep state (NEIMatching addrs) = state
+
+netEngineNextIter ::
+  (Monoid a, Ord i) => NetEngineState a i -> NetEngineState a i
+netEngineNextIter ne =
+  case peerMoves of
+    Nothing -> ne { neWaitingForPeers = True }
+    Just move ->
+      ne
+      { neLocalMove = mempty
+      , neQueue =
+          insert moveKey (neLocalMove ne) $
+          foldr delete (neQueue ne) moveKeys
+      , neGameIteration = iter + 1
+      , neOutputMove = move
+      , neWaitingForPeers = False
+      }
+  where
+    moveKey = (iter + neLatencyIters ne, neMyPeerId ne)
+    iter = neGameIteration ne
+    moveKeys = (,) iter <$> nePeers ne
+    peerMoves =
+      mconcat <$>
+      sequence ((`lookup` neQueue ne) <$> moveKeys)
 
 {-
 
@@ -93,38 +150,11 @@ data NetEngPacket m i
 data HelloType = LetsPlay | WereOn
   deriving (Read, Show, Eq)
 
-netEngineStep ::
-  (Monoid a, Ord i, Read a, Read i) =>
-  NetEngine a i -> NetEngEvent a -> NetEngine a i
-netEngineStep ne IterTimer = netEngineNextIter ne
 netEngineStep ne (LocalMove f) =
   ne { neLocalMove = f (neLocalMove ne) }
 netEngineStep ne (Recv (msg, _, peerAddr)) =
   netEngineProcPacket ne
   ((read . unpack . decompress . pack) msg) peerAddr
-
-netEngineNextIter ::
-  (Monoid a, Ord i) => NetEngine a i -> NetEngine a i
-netEngineNextIter ne =
-  case peerMoves of
-    Nothing -> ne { neWaitingForPeers = True }
-    Just move ->
-      ne
-      { neLocalMove = mempty
-      , neQueue = 
-          insert moveKey (neLocalMove ne) $
-          foldr delete (neQueue ne) moveKeys
-      , neGameIteration = iter + 1
-      , neOutputMove = return move
-      , neWaitingForPeers = False
-      }
-  where
-    moveKey = (iter + neLatencyIters ne, nePeerId ne)
-    iter = neGameIteration ne
-    moveKeys = (,) iter <$> nePeers ne
-    peerMoves = 
-      mconcat <$>
-      sequence ((`lookup` neQueue ne) <$> moveKeys)
 
 netEngineProcPacket ::
   (Monoid a, Ord i, Read a, Read i) =>

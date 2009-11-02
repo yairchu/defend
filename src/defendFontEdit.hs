@@ -170,8 +170,8 @@ main = do
   let
     backend =
       mconcat
-      [ Glut <$> glut . rid . arr gGlutO
-      , FileI <$> fileB . rid . arr gFileO
+      [ Glut <$> glut . rid . arrC gGlutO
+      , FileI <$> fileB . rid . arrC gFileO
       ]
   runProgram backend gameProc
 

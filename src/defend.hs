@@ -35,28 +35,19 @@ data MyTimers
   deriving Show
 $(mkADTGetterCats ''MyTimers)
 
-data MyInput
+data MyNode
   = IGlut UTCTime (GlutToProgram MyTimers)
   | IUdp (UdpToProg ())
   | IHttp (Maybe String)
-$(mkADTGetterCats ''MyInput)
-
-data MyOutput
-  = OGlut (ProgramToGlut MyTimers)
+  | OGlut (ProgramToGlut MyTimers)
   | OUdp (ProgToUdp ())
   | OHttp String
   | OPrint String
-$(mkADTGetterCats ''MyOutput)
-
-data MyLayer
-  = Glut (GlutToProgram MyTimers)
-  | AIntro Image
   | ABoard Board
   | ASelection BoardPos BoardPos
   | AMove BoardPos BoardPos
   | ASide (Maybe PieceSide)
-  | AOut MyOutput
-$(mkADTGetterCats ''MyLayer)
+$(mkADTGetterCats ''MyNode)
 
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
 maybeMinimumOn f =
@@ -88,8 +79,8 @@ prevP = fst <$> withPrev
 
 keyState :: Key -> Program (GlutToProgram a) KeyState
 keyState key =
-  mappend
-  (singleValueP Up)
+  -- mappend
+  -- (singleValueP Up)
   (mapMaybeC f . cKeyboardMouseEvent)
   where
     f (k, s, _, _) = do
@@ -99,11 +90,14 @@ keyState key =
 addP :: (Category cat, Monoid (cat a a)) => cat a a -> cat a a
 addP = mappend id
 
-game :: DefendFont -> Program MyInput MyOutput
-game font =
+game :: Integer -> DefendFont -> Program MyNode MyNode
+game myPeerId font =
+  runMergeProg $
   mconcat
   [ OGlut . DrawImage . mappend glStyle
-    <$> (mappend
+    <$> undefined
+
+{-(mappend
       <$> (draw
         <$> pure font
         <*> cABoard
@@ -111,42 +105,38 @@ game font =
         <*> cMouseMotionEvent . cGlut
         <*> cASide
         )
-      <*> cAIntro
-      )
-  , cAOut
-  , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
+      <*> MergeProg (intro font . arr fst . cIGlut)
+      )-}
+  -- , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
   ]
+{-
+  -- loopback because board affects moves and vice versa
+  . loopbackP (uncurry AMove <$> cAMove) (
+    addP calculateMoves
+    . addP calculateSelection
+    -- calculate board state
+    . addP (ABoard <$> scanlP doMove chessStart . cAMove)
+  )
   . mconcat
-  [ gameCore
-  , AIntro <$> intro font . arr fst . cIGlut
+  [ id
+  -- , ASide <$> singleValueP Nothing -- (Just White)
+  -- contact http server
+  , mconcat
+    [ OHttp . fst <$> cMOHttp
+    , OGlut (SetTimer 1000 TimerMatching) <$ cMOSetRetryTimer
+    , OPrint . ("Matching:" ++) . (++ "\n") . show <$> cMatchingResult
+    ]
+    . netMatching
+    . mconcat
+    [ arr (`MIHttp` ()) . cIHttp
+    , MITimerEvent () <$ cTimerMatching . cTimerEvent . arr snd . cIGlut
+    , uncurry DoMatching <$> cUdpSocketAddresses . cIUdp
+    ]
   ]
+-}
   where
-    gameCore =
-      -- loopback because board affects moves and vice versa
-      loopbackP (uncurry AMove <$> cAMove) (
-        addP calculateMoves
-        . addP calculateSelection
-        -- calculate board state
-        . addP (ABoard <$> scanlP doMove chessStart . cAMove)
-      )
-      . mconcat
-      [ ASide <$> singleValueP Nothing -- (Just White)
-      , Glut . snd <$> cIGlut
-      -- a fake initial mouse position
-      , singleValueP . Glut $ MouseMotionEvent 0 0
-      -- contact http server
-      , mconcat
-        [ AOut . OHttp . fst <$> cMOHttp
-        , (AOut . OGlut) (SetTimer 1000 TimerMatching) <$ cMOSetRetryTimer
-        , AOut . OPrint . ("Matching:" ++) . (++ "\n") . show <$> cMatchingResult
-        ]
-        . netMatching
-        . mconcat
-        [ arr (`MIHttp` ()) . cIHttp
-        , MITimerEvent () <$ cTimerMatching . cTimerEvent . arr snd . cIGlut
-        , uncurry DoMatching <$> cUdpSocketAddresses . cIUdp
-        ]
-      ]
+    cGlut = snd <$> cIGlut
+{-
     calculateMoves =
       (rid .) $ aMove
       <$> ((,) <$> id <*> prevP)
@@ -165,6 +155,7 @@ game font =
           )
         )
       <*> cMouseMotionEvent . cGlut
+-}
     aMove (u, d) (src, dst) = do
       gUp u
       gDown d
@@ -256,6 +247,7 @@ main = do
     , Where DisplaySamples IsAtLeast 2
     ]
   font <- loadFont <$> (readFile =<< getDataFileName "data/defend.font")
+  peerId <- randomRIO (0, 2^(128::Int))
   let
     backend =
       mconcat
@@ -264,5 +256,5 @@ main = do
       , IUdp <$> udpB . cOUdp
       , rid . arr (const Nothing) . stdoutB . cOPrint
       ]
-  runProgram backend (game font)
+  runProgram backend (game peerId font)
 

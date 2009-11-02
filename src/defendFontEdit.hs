@@ -7,6 +7,7 @@ import Control.Category
 import Control.FilterCategory
 import Control.Monad
 import Data.ADT.Getters
+import Data.Generics.Aliases (orElse)
 import Data.Map (Map, findWithDefault, insert)
 import Data.Monoid
 import FRP.Peakachu
@@ -63,9 +64,9 @@ data MidLayer
   | AFont (Map String [[DrawPos]])
   | ADoLoad | ADoSave
 
-$(mkADTGetterCats ''MyIn)
-$(mkADTGetterCats ''MyOut)
-$(mkADTGetterCats ''MidLayer)
+$(mkADTGetters ''MyIn)
+$(mkADTGetters ''MyOut)
+$(mkADTGetters ''MidLayer)
 
 draw :: Map String [[DrawPos]] -> String -> DrawPos -> Image
 draw font text cpos@(cx, cy) =
@@ -101,30 +102,35 @@ draw font text cpos@(cx, cy) =
         vertex $ Vertex2 x (y+s)
     gridLines = map ((/ fromIntegral gridRadius) . fromIntegral) [-gridRadius..gridRadius]
 
+lst :: (a -> Maybe b) -> MergeProgram a b
+lst f =
+  rid . MergeProg (scanlP (flip orElse) Nothing) . arr f
+
 gameProc :: Program MyIn MyOut
 gameProc =
+  runMergeProg $
   mconcat
-  [ GlutO . DrawImage <$> (draw <$> cAFont <*> cAText <*> cAPos)
+  [ GlutO . DrawImage <$> (draw <$> lst gAFont <*> lst gAText <*> lst gAPos)
   , FileO <$> rid . mconcat
-    [ doLoad <$> id <*> cAText
-    , doSave <$> id <*> cAText <*> cAFont
+    [ doLoad <$> id <*> lst gAText
+    , doSave <$> id <*> lst gAText <*> lst gAFont
     ]
   ]
   . mconcat
   [ id
   , AFont <$> 
-    scanlP fontStep mempty .
-    ((,,) <$> id <*> cAText <*> cAPos)
+    MergeProg (scanlP fontStep mempty) .
+    ((,,) <$> id <*> lst gAText <*> lst gAPos)
   ]
   . mconcat
   [ mconcat
-    [ AText <$> scanlP textStep [] . mapMaybeC typedText
+    [ AText <$> MergeProg (scanlP textStep [] . mapMaybeC typedText)
     , ADoLoad <$ mapMaybeC (clicka (Char 'l') (Modifiers Up Up Down))
     , ADoSave <$ mapMaybeC (clicka (Char 's') (Modifiers Up Up Down))
     , AClick <$> mapMaybeC clicksFunc
-    ] . cKeyboardMouseEvent . cGlut
-  , APos <$> toGrid <$> cMouseMotionEvent . cGlut
-  , AFont <$> read . fst <$> cFileData . cFileI
+    ] . lst gKeyboardMouseEvent . lst gGlut
+  , APos <$> toGrid <$> lst (gGlut >=> gMouseMotionEvent)
+  , AFont <$> read . fst <$> lst (gFileI >=> gFileData)
   ]
   where
     typedText (c, s, m, _) = do
@@ -156,13 +162,13 @@ gameProc =
     fontStep _ (AFont x, _, _) = x
     fontStep prev _ = prev
 
-removeWarnings :: Program MidLayer ()
-removeWarnings =
-  mconcat [ cADoLoad, cADoSave, () <$ cAClick ]
+--removeWarnings :: Program MidLayer ()
+--removeWarnings =
+--  runMergeProg $ mconcat [ cADoLoad, cADoSave, () <$ cAClick ]
 
 main :: IO ()
 main = do
-  when False . undefined $ removeWarnings
+  --when False . undefined $ removeWarnings
   initialWindowSize $= Size 600 600
   initialDisplayCapabilities $=
     [With DisplayRGB
@@ -171,8 +177,8 @@ main = do
   let
     backend =
       mconcat
-      [ Glut <$> glut . cGlutO
-      , FileI <$> fileB . cFileO
+      [ Glut <$> glut . rid . arr gGlutO
+      , FileI <$> fileB . rid . arr gFileO
       ]
   runProgram backend gameProc
 

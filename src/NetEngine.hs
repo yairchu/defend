@@ -1,39 +1,68 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module NetEngine where
 
 import Networking
 
+import Control.Category
 import Codec.Compression.Zlib (decompress, compress)
 import Control.Applicative ((<$), (<$>))
 import Control.Monad (guard, forM_)
 import Data.ByteString.Lazy.Char8 (pack, unpack)
 import Data.Map (Map, delete, fromList, insert, lookup, toList)
 import Data.Monoid (Monoid(..))
-import Network.Socket (SockAddr, sendTo)
-import Prelude hiding (lookup)
+import FRP.Peakachu.Program
+import Network.Socket (SockAddr)
+import Prelude hiding ((.), lookup)
 
-{-
-data NetEngineInput moveType
-  = NeiLocalMoveUpdates moveType
-  | NeiPeerId
--}
-
-{-
-type NEQueue moveType idType = Map (Integer, idType) moveType
-
-data NetEngine moveType idType = NetEngine
+data NetEngineState moveType idType = NetEngineState
   { neLocalMove :: moveType
-  , neQueue :: NEQueue moveType idType
-  , neLatencyIters :: Integer
-  , nePeerId :: idType
+  , neQueue :: Map (Integer, idType) moveType
   , nePeers :: [idType]
   , nePeerAddrs :: [SockAddr]
   , neWaitingForPeers :: Bool
   , neGameIteration :: Integer
-  , neOutputMove :: Maybe moveType
-  , neOutputPacket :: Maybe (NetEngPacket moveType idType, SockAddr)
+  , neOutputMove :: moveType
   }
+
+data NetEngineOutput moveType
+  = NEOMove moveType
+  | NEOPacket String SockAddr
+  | NEOSetIterTimer
+
+data NetEngineInput moveType
+  = NEIMove moveType
+  | NEIPacket String SockAddr
+  | NEIIterTimer
+  | NEITransmitTimer
+
+data HelloType = LetsPlay | WereOn
+  deriving (Read, Show, Eq)
+
+data NetEngPacket m i
+  = Moves (Map (Integer, i) m)
+  | Hello i HelloType
+  deriving (Read, Show)
+
+netEngine
+  :: (Monoid moveType, Ord peerIdType)
+  => peerIdType
+  -> Program (NetEngineInput moveType) (NetEngineOutput moveType)
+netEngine myPeerId =
+  undefined
+  . scanlP step NetEngineState
+  { neLocalMove = mempty
+  , neQueue = mempty
+  , nePeers = [myPeerId]
+  , nePeerAddrs = mempty
+  , neWaitingForPeers = False
+  , neGameIteration = 0
+  , neOutputMove = mempty
+  }
+  where
+    step state (NEIMove move) =
+      state { neLocalMove = mappend move . neLocalMove $ state }
+
+
+{-
 
 data NetEngineInput moveType idType = NetEngineInput
   { neiLocalMoveUpdates :: Event (moveType -> moveType)

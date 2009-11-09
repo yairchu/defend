@@ -8,6 +8,7 @@ module NetEngine
 
 import Networking
 
+import Control.Applicative
 import Control.Category
 import Control.FilterCategory
 import Codec.Compression.Zlib (decompress, compress)
@@ -15,11 +16,12 @@ import Control.Applicative ((<$), (<$>))
 import Control.Monad (guard, forM_)
 import Data.ADT.Getters
 import Data.ByteString.Lazy.Char8 (pack, unpack)
+import Data.Function (on)
 import Data.Map (Map, delete, fromList, insert, lookup, toList)
 import Data.Monoid (Monoid(..))
 import FRP.Peakachu.Program
 import Network.Socket (SockAddr)
-import Prelude hiding ((.), lookup)
+import Prelude hiding ((.), id, lookup)
 
 data NetEngineState moveType idType = NetEngineState
   { neLocalMove :: moveType
@@ -37,6 +39,7 @@ data NetEngineOutput moveType
   = NEOMove moveType
   | NEOPacket String SockAddr
   | NEOSetIterTimer
+  deriving Show
 $(mkADTGetters ''NetEngineOutput)
 
 data NetEngineInput moveType
@@ -45,6 +48,7 @@ data NetEngineInput moveType
   | NEIMatching [SockAddr]
   | NEIIterTimer
   | NEITransmitTimer
+$(mkADTGetters ''NetEngineInput)
 
 data HelloType = LetsPlay | WereOn
   deriving (Read, Show, Eq)
@@ -54,11 +58,26 @@ data NetEngPacket m i
   | Hello i HelloType
   deriving (Read, Show)
 
-atP :: (FilterCategory cat, Functor (cat a)) => (a -> Maybe b) -> cat a b
+atP :: FilterCategory cat => (a -> Maybe b) -> cat a b
 atP = mapMaybeC
 
 singleValueP :: b -> MergeProgram a b
 singleValueP = MergeProg . runAppendProg . return
+
+withPrev :: MergeProgram a (a, a)
+withPrev =
+  mapMaybeC (uncurry (liftA2 (,)))
+  . MergeProg (scanlP step (Nothing, Nothing))
+  where
+    step (_, x) y = (x, Just y)
+
+filterP :: FilterCategory cat => (a -> Bool) -> cat a a
+filterP cond =
+  mapMaybeC f
+  where
+    f x = do
+      guard $ cond x :: Maybe ()
+      return x
 
 netEngine
   :: ( Monoid moveType, Ord peerIdType
@@ -68,9 +87,14 @@ netEngine
   -> MergeProgram (NetEngineInput moveType) (NetEngineOutput moveType)
 netEngine myPeerId =
   mconcat
-  [ mconcat
-    [ NEOMove <$> arrC neLocalMove -- neOutputMove
-    , singleValueP NEOSetIterTimer
+  [ singleValueP NEOSetIterTimer
+  , mconcat
+    [ mconcat
+      [ NEOMove <$> arrC (neOutputMove . snd)
+      , NEOSetIterTimer <$ id
+      ]
+      . filterP (uncurry (on (/=) neGameIteration))
+      . withPrev
     ]
     . MergeProg (scanlP netEngineStep start)
 --  , atP gNEIMatching
@@ -78,15 +102,20 @@ netEngine myPeerId =
   where
     start = NetEngineState
       { neLocalMove = mempty
-      , neQueue = mempty
+      , neQueue =
+          fromList
+          [ ((i, myPeerId), mempty)
+          | i <- [0 .. latencyIters-1]
+          ]
       , nePeers = [myPeerId]
       , nePeerAddrs = mempty
       , neWaitingForPeers = False
       , neGameIteration = 0
       , neOutputMove = mempty
-      , neLatencyIters = 5
+      , neLatencyIters = latencyIters
       , neMyPeerId = myPeerId
       }
+    latencyIters = 5
 
 netEngineStep ::
   (Monoid a, Ord i, Read a, Read i) =>

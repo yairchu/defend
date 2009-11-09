@@ -95,7 +95,7 @@ keyState key =
 addP :: (Category cat, Monoid (cat a a)) => cat a a -> cat a a
 addP = mappend id
 
-atP :: (FilterCategory cat, Functor (cat a)) => (a -> Maybe b) -> cat a b
+atP :: FilterCategory cat => (a -> Maybe b) -> cat a b
 atP = mapMaybeC
 
 game :: Integer -> DefendFont -> Program MyNode MyNode
@@ -115,6 +115,8 @@ game myPeerId font =
       <*> MergeProg (intro font) . arrC fst . lstP gIGlut
       )
   , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
+  , OPrint . (++ "\n") . show <$> atP (gGlut >=> gTimerEvent)
+  , OPrint . (++ "\n") . show <$> atP gAMoves
   ]
   -- loopback because board affects moves and vice versa
   . inMergeProgram1 (loopbackP (AMoves <$> atP gAMoves)) (
@@ -131,7 +133,6 @@ game myPeerId font =
   [ id
   , ASide <$> singleValueP Nothing -- (Just White)
   -- contact http server
-  , OPrint . (++ "\n") . show <$> atP (gGlut >=> gTimerEvent)
   , matching
   ]
   where
@@ -139,13 +140,13 @@ game myPeerId font =
       mconcat
       [ AMoves <$> atP gNEOMove
       , OGlut (SetTimer 50 TimerNetEngine) <$ atP gNEOSetIterTimer
+      , OPrint . ("NetEng: " ++) . (++ "\n") . show <$> id
       ]
       . netEngine myPeerId
       . mconcat
       [ NEIMatching <$> atP gAMatching
       , NEIMove . return <$> atP gAQueueMove
       , NEIIterTimer <$ atP (gGlut >=> gTimerEvent >=> gTimerNetEngine)
-      , singleValueP NEIIterTimer
       ]
     matching =
       mconcat
@@ -164,7 +165,7 @@ game myPeerId font =
     gGlut = (fmap . fmap) snd gIGlut
     calculateMoves =
       uncurry AQueueMove
-      <$ (mappend <$> atP gUp <*> atP gDown . prevP)
+      <$ (atP gUp <* atP gDown . prevP)
         . keyState (MouseButton LeftButton) . lstP gGlut
       <*> prevP . lstP gASelection
     calculateSelection =

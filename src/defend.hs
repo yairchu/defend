@@ -15,7 +15,7 @@ import Control.FilterCategory
 import Control.Monad ((>=>), guard, join)
 import Data.ADT.Getters
 import Data.Foldable (foldl')
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid
 import Data.Time.Clock
 import FRP.Peakachu
@@ -24,7 +24,7 @@ import FRP.Peakachu.Backend.GLUT
 import FRP.Peakachu.Backend.GLUT.Getters
 import FRP.Peakachu.Backend.StdIO
 import FRP.Peakachu.Backend.Time
-import Graphics.UI.GLUT hiding (Program)
+import Graphics.UI.GLUT hiding (Program, Exit)
 import Network.Socket (SockAddr)
 import System.Random (randomRIO)
 
@@ -44,7 +44,9 @@ data MyNode
   | OUdp (ProgToUdp ())
   | OHttp String
   | OPrint String
+  | Exit
   | ABoard Board
+  | ADrawTime UTCTime
   | ASelection BoardPos BoardPos
   | AQueueMove BoardPos BoardPos
   | AMoves [(BoardPos, BoardPos)]
@@ -100,23 +102,24 @@ atP = mapMaybeC
 
 game :: Integer -> DefendFont -> Program MyNode MyNode
 game myPeerId font =
-  runMergeProg $
-  mconcat
+  (takeWhileP (isNothing . gExit) .)
+  . runMergeProg
+  $ mconcat
   [ id
   , OGlut . DrawImage . mappend glStyle
     <$> (mappend
-      <$> (draw
-        <$> pure font
+      <$> (draw font
+        <$ atP gADrawTime
         <*> lstP gABoard
         <*> lstP gASelection
         <*> mouseMotion
         <*> lstP gASide
         )
-      <*> MergeProg (intro font) . arrC fst . lstP gIGlut
+      <*> MergeProg (intro font) . atP gADrawTime
       )
   , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
   , OPrint . (++ "\n") . show <$> atP (gGlut >=> gTimerEvent)
-  , OPrint . (++ "\n") . show <$> atP gAMoves
+  , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
   ]
   -- loopback because board affects moves and vice versa
   . inMergeProgram1 (loopbackP (AMoves <$> atP gAMoves)) (
@@ -134,13 +137,16 @@ game myPeerId font =
   , ASide <$> singleValueP Nothing -- (Just White)
   -- contact http server
   , matching
+  , drawFps
   ]
   where
+    drawFps = ADrawTime <$> arrC fst . atP gIGlut
+    quitButton (Char 'q', _, _, _) = Just ()
+    quitButton _ = Nothing
     neteng =
       mconcat
       [ AMoves <$> atP gNEOMove
       , OGlut (SetTimer 50 TimerNetEngine) <$ atP gNEOSetIterTimer
-      , OPrint . ("NetEng: " ++) . (++ "\n") . show <$> id
       ]
       . netEngine myPeerId
       . mconcat
@@ -215,10 +221,10 @@ main = do
   let
     backend =
       mconcat
-      [ uncurry IGlut <$> getTimeB . glut . mapMaybeC gOGlut
-      , IHttp . fst <$> httpGetB . arrC (flip (,) ()) . mapMaybeC gOHttp
-      , arrC IUdp . udpB . mapMaybeC gOUdp
-      , rid . arrC (const Nothing) . stdoutB . mapMaybeC gOPrint
+      [ uncurry IGlut <$> getTimeB . glut . atP gOGlut
+      , IHttp . fst <$> httpGetB . arrC (flip (,) ()) . atP gOHttp
+      , IUdp <$> udpB . atP gOUdp
+      , atP (const Nothing) . stdoutB . atP gOPrint
       ]
   runProgram backend (game peerId font)
 

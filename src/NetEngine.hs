@@ -12,7 +12,6 @@ import Control.Applicative
 import Control.Category
 import Control.FilterCategory
 import Codec.Compression.Zlib (decompress, compress)
-import Control.Applicative ((<$), (<$>))
 import Control.Monad (guard, forM_)
 import Data.ADT.Getters
 import Data.ByteString.Lazy.Char8 (pack, unpack)

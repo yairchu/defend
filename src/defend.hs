@@ -46,7 +46,6 @@ data MyNode
   | OPrint String
   | Exit
   | ABoard Board
-  | ADrawTime UTCTime
   | ASelection BoardPos BoardPos
   | AQueueMove BoardPos BoardPos
   | AMoves [(BoardPos, BoardPos)]
@@ -109,16 +108,15 @@ game myPeerId font =
   , OGlut . DrawImage . mappend glStyle
     <$> (mappend
       <$> (draw font
-        <$ atP gADrawTime
+        <$ atP gGlut
         <*> lstP gABoard
         <*> lstP gASelection
         <*> mouseMotion
         <*> lstP gASide
         )
-      <*> MergeProg (intro font) . atP gADrawTime
+      <*> MergeProg (intro font) . arrC fst . atP gIGlut
       )
   , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
-  , OPrint . (++ "\n") . show <$> atP (gGlut >=> gTimerEvent)
   , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
   ]
   -- loopback because board affects moves and vice versa
@@ -137,22 +135,22 @@ game myPeerId font =
   , ASide <$> singleValueP Nothing -- (Just White)
   -- contact http server
   , matching
-  , drawFps
   ]
   where
-    drawFps = ADrawTime <$> arrC fst . atP gIGlut
     quitButton (Char 'q', _, _, _) = Just ()
     quitButton _ = Nothing
     neteng =
       mconcat
       [ AMoves <$> atP gNEOMove
       , OGlut (SetTimer 50 TimerNetEngine) <$ atP gNEOSetIterTimer
+      , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
       ]
       . netEngine myPeerId
       . mconcat
       [ NEIMatching <$> atP gAMatching
       , NEIMove . return <$> atP gAQueueMove
       , NEIIterTimer <$ atP (gGlut >=> gTimerEvent >=> gTimerNetEngine)
+      , (\(a, b, _) -> NEIPacket a b) <$> atP (gIUdp >=> gRecvFrom)
       ]
     matching =
       mconcat

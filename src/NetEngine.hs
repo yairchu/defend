@@ -130,6 +130,10 @@ netEngine myPeerId =
     , arrC AInput
     ]
   , outPacket (Hello myPeerId LetsPlay) <$> flattenC . atP gNEIMatching
+  -- for warnings
+  , undefined <$> filterP (const False) . atP gNEIMove
+  , undefined <$> filterP (const False) . atP gNEIPacket
+  , undefined <$> filterP (const False) . atP gNEIIterTimer
   ]
   where
     sendMoves state =

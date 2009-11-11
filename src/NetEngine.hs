@@ -79,9 +79,15 @@ filterP cond =
       guard $ cond x :: Maybe ()
       return x
 
+outPacket
+  :: (Show a, Show i)
+  => NetEngPacket a i -> SockAddr -> NetEngineOutput a
+outPacket = NEOPacket . withPack compress . show
+
 netEngine
   :: ( Monoid moveType, Ord peerIdType
      , Read moveType, Read peerIdType
+     , Show moveType, Show peerIdType
      )
   => peerIdType
   -> MergeProgram (NetEngineInput moveType) (NetEngineOutput moveType)
@@ -97,7 +103,7 @@ netEngine myPeerId =
       . withPrev
     ]
     . MergeProg (scanlP netEngineStep (startState myPeerId))
-  , NEOPacket "Boo" <$> flattenC . atP gNEIMatching
+  , outPacket (Hello myPeerId LetsPlay) <$> flattenC . atP gNEIMatching
   ]
 
 startState

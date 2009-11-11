@@ -3,16 +3,14 @@
 module NetEngine
   ( NetEngineOutput(..), NetEngineInput(..)
   , netEngine
-  , gNEOMove, gNEOPacket, gNEOSetIterTimer
+  , gNEOMove, gNEOPacket, gNEOSetIterTimer, gNEOPeerConnected
   ) where
-
-import Networking
 
 import Control.Applicative
 import Control.Category
 import Control.FilterCategory
 import Codec.Compression.Zlib (decompress, compress)
-import Control.Monad ((>=>), guard, forM_)
+import Control.Monad ((>=>), guard)
 import Data.ADT.Getters
 import Data.ByteString.Lazy.Char8 (ByteString, pack, unpack)
 import Data.Function (on)
@@ -34,9 +32,9 @@ data NetEngineState moveType idType = NetEngineState
   , neMyPeerId :: idType
   }
 
-data NetEngineOutput moveType
+data NetEngineOutput moveType idType
   = NEOMove moveType
-  | NEOPeerConnected
+  | NEOPeerConnected idType
   | NEOPacket String SockAddr
   | NEOSetIterTimer
   deriving Show
@@ -86,7 +84,7 @@ filterP cond =
 
 outPacket
   :: (Show a, Show i)
-  => NetEngPacket a i -> SockAddr -> NetEngineOutput a
+  => NetEngPacket a i -> SockAddr -> NetEngineOutput a i
 outPacket = NEOPacket . withPack compress . show
 
 atChgOf :: Eq b
@@ -100,7 +98,9 @@ netEngine
      , Show moveType, Show peerIdType
      )
   => peerIdType
-  -> MergeProgram (NetEngineInput moveType) (NetEngineOutput moveType)
+  -> MergeProgram
+     (NetEngineInput moveType)
+     (NetEngineOutput moveType peerIdType)
 netEngine myPeerId =
   mconcat
   [ singleValueP NEOSetIterTimer
@@ -109,9 +109,15 @@ netEngine myPeerId =
       [ NEOMove . neOutputMove <$> id
       , NEOSetIterTimer <$ id
       ] . atChgOf neGameIteration . atP gAState
-    , outPacket (Hello myPeerId WereOn)
-      <$> flattenC
-      . arrC nePeerAddrs
+    , mconcat
+      [ outPacket (Hello myPeerId WereOn)
+        <$> flattenC
+        . arrC nePeerAddrs
+      , arrC NEOPeerConnected
+        . filterP (/= myPeerId)
+        . flattenC
+        . arrC nePeers
+      ]
       . atChgOf nePeerAddrs
       . atP gAState
     , flattenC 

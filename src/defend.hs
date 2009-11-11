@@ -149,6 +149,7 @@ game myPeerId font =
         [ AMoves <$> atP gNEOMove
         , OGlut (SetTimer 50 TimerGameIter) <$ atP gNEOSetIterTimer
         , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
+        , ASide . Just . pickSide <$> atP gNEOPeerConnected
         ]
         . netEngine myPeerId
         . mconcat
@@ -159,6 +160,9 @@ game myPeerId font =
         , (\(a, b, _) -> NEIPacket a b) <$> atP (gIUdp >=> gRecvFrom)
         ]
       ]
+    pickSide peerId
+      | myPeerId < peerId = Black
+      | otherwise = White
     matching =
       mconcat
       [ OHttp . fst <$> atP gMOHttp

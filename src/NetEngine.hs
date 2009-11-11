@@ -168,11 +168,13 @@ processPacket
   :: (Monoid a, Ord i)
   => NetEngineState a i -> SockAddr -> NetEngPacket a i
   -> NetEngineState a i
-processPacket state sender (Hello peerId _) =
-  (startState myPeerId)
-  { nePeers = [myPeerId, peerId]
-  , nePeerAddrs = [sender]
-  }
+processPacket state sender (Hello peerId _)
+  | peerId `elem` nePeers state = state
+  | otherwise =
+    (startState myPeerId)
+    { nePeers = [myPeerId, peerId]
+    , nePeerAddrs = [sender]
+    }
   where
     myPeerId = neMyPeerId state
 processPacket state _ (Moves moves)
@@ -181,7 +183,10 @@ processPacket state _ (Moves moves)
   where
     updState =
       state
-      { neQueue = mappend moves . neQueue $ state
+      { neQueue =
+          mappend (neQueue state) . fromList
+          . filter ((>= neGameIteration state) . fst . fst)
+          . toList $ moves
       }
 
 netEngineNextIter ::

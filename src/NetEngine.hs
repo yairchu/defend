@@ -84,6 +84,11 @@ outPacket
   => NetEngPacket a i -> SockAddr -> NetEngineOutput a
 outPacket = NEOPacket . withPack compress . show
 
+atChgOf :: Eq b
+  => (a -> b) -> MergeProgram a a
+atChgOf onfunc =
+  arrC snd . filterP (uncurry (on (/=) onfunc)) . withPrev
+
 netEngine
   :: ( Monoid moveType, Ord peerIdType
      , Read moveType, Read peerIdType
@@ -96,11 +101,13 @@ netEngine myPeerId =
   [ singleValueP NEOSetIterTimer
   , mconcat
     [ mconcat
-      [ NEOMove <$> arrC (neOutputMove . snd)
+      [ NEOMove . neOutputMove <$> id
       , NEOSetIterTimer <$ id
-      ]
-      . filterP (uncurry (on (/=) neGameIteration))
-      . withPrev
+      ] . atChgOf neGameIteration
+    , outPacket (Hello myPeerId WereOn)
+      <$> flattenC
+      . arrC nePeerAddrs
+      . atChgOf nePeerAddrs
     ]
     . MergeProg (scanlP netEngineStep (startState myPeerId))
   , outPacket (Hello myPeerId LetsPlay) <$> flattenC . atP gNEIMatching
@@ -136,17 +143,19 @@ netEngineStep state (NEIMove move) =
 netEngineStep state NEIIterTimer = netEngineNextIter state
 netEngineStep state (NEIMatching addrs) = state
 netEngineStep state (NEIPacket contents sender) =
-  processPacket state . read . withPack decompress $ contents
+  processPacket state sender . read . withPack decompress $ contents
 
 withPack :: (ByteString -> ByteString) -> String -> String
 withPack = (unpack .) . (. pack)
 
 processPacket
   :: (Monoid a, Ord i)
-  => NetEngineState a i -> NetEngPacket a i -> NetEngineState a i
-processPacket state (Hello peerId _) =
+  => NetEngineState a i -> SockAddr -> NetEngPacket a i
+  -> NetEngineState a i
+processPacket state sender (Hello peerId _) =
   (startState myPeerId)
   { nePeers = [myPeerId, peerId]
+  , nePeerAddrs = [sender]
   }
   where
     myPeerId = neMyPeerId state

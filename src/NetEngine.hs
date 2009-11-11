@@ -12,7 +12,7 @@ import Control.Applicative
 import Control.Category
 import Control.FilterCategory
 import Codec.Compression.Zlib (decompress, compress)
-import Control.Monad (guard, forM_)
+import Control.Monad ((>=>), guard, forM_)
 import Data.ADT.Getters
 import Data.ByteString.Lazy.Char8 (ByteString, pack, unpack)
 import Data.Function (on)
@@ -49,6 +49,11 @@ data NetEngineInput moveType
   | NEIIterTimer
   | NEITransmitTimer
 $(mkADTGetters ''NetEngineInput)
+
+data NetEngineMid moveType idType
+  = AInput (NetEngineInput moveType)
+  | AState (NetEngineState moveType idType)
+$(mkADTGetters ''NetEngineMid)
 
 data HelloType = LetsPlay | WereOn
   deriving (Read, Show, Eq)
@@ -103,15 +108,26 @@ netEngine myPeerId =
     [ mconcat
       [ NEOMove . neOutputMove <$> id
       , NEOSetIterTimer <$ id
-      ] . atChgOf neGameIteration
+      ] . atChgOf neGameIteration . atP gAState
     , outPacket (Hello myPeerId WereOn)
       <$> flattenC
       . arrC nePeerAddrs
       . atChgOf nePeerAddrs
+      . atP gAState
+    , flattenC 
+      . ( sendMoves
+          <$> (lstP gAState <* atP (gAInput >=> gNEITransmitTimer))
+        )
     ]
-    . MergeProg (scanlP netEngineStep (startState myPeerId))
+    . mconcat
+    [ AState <$> MergeProg (scanlP netEngineStep (startState myPeerId))
+    , arrC AInput
+    ]
   , outPacket (Hello myPeerId LetsPlay) <$> flattenC . atP gNEIMatching
   ]
+  where
+    sendMoves state =
+      outPacket (Moves (neQueue state)) <$> nePeerAddrs state
 
 startState
   :: (Monoid moveType, Ord peerIdType)
@@ -141,9 +157,9 @@ netEngineStep
 netEngineStep state (NEIMove move) =
   state { neLocalMove = mappend move . neLocalMove $ state }
 netEngineStep state NEIIterTimer = netEngineNextIter state
-netEngineStep state (NEIMatching addrs) = state
 netEngineStep state (NEIPacket contents sender) =
   processPacket state sender . read . withPack decompress $ contents
+netEngineStep state _ = state
 
 withPack :: (ByteString -> ByteString) -> String -> String
 withPack = (unpack .) . (. pack)
@@ -159,6 +175,14 @@ processPacket state sender (Hello peerId _) =
   }
   where
     myPeerId = neMyPeerId state
+processPacket state _ (Moves moves)
+  | neWaitingForPeers state = netEngineNextIter updState
+  | otherwise = updState
+  where
+    updState =
+      state
+      { neQueue = mappend moves . neQueue $ state
+      }
 
 netEngineNextIter ::
   (Monoid a, Ord i) => NetEngineState a i -> NetEngineState a i
@@ -183,124 +207,3 @@ netEngineNextIter ne =
       mconcat <$>
       sequence ((`lookup` neQueue ne) <$> moveKeys)
 
-{-
-
-data NetEngineInput moveType idType = NetEngineInput
-  { neiLocalMoveUpdates :: Event (moveType -> moveType)
-  , neiPeerId :: idType
-  , neiSocket :: PeakaSocket
-  , neiNewPeerAddrs :: Event SockAddr
-  , neiIterTimer :: EffectFunc () () ()
-  , neiTransmitTimer :: EffectFunc () () ()
-  }
-
-data NetEngineOutput moveType idType = NetEngineOutput
-  { neoMove :: Event moveType
-  , neoSideEffect :: SideEffect
-  , neoIsConnected :: Event Bool
-  , neoPeers :: Event [idType]
-  }
-
-data NetEngEvent a
-  = LocalMove (a -> a)
-  | IterTimer
-  | Recv (String, Int, SockAddr)
-
-data NetEngPacket m i
-  = Moves (NEQueue m i)
-  | Hello i HelloType
-  deriving (Read, Show)
-
-data HelloType = LetsPlay | WereOn
-  deriving (Read, Show, Eq)
-
-netEngineStep ne (LocalMove f) =
-  ne { neLocalMove = f (neLocalMove ne) }
-netEngineStep ne (Recv (msg, _, peerAddr)) =
-  netEngineProcPacket ne
-  ((read . unpack . decompress . pack) msg) peerAddr
-
-netEngineProcPacket ::
-  (Monoid a, Ord i, Read a, Read i) =>
-  NetEngine a i -> NetEngPacket a i -> SockAddr -> NetEngine a i
-netEngineProcPacket ne (Moves upd) _
-  | neWaitingForPeers ne = netEngineNextIter neUpd
-  | otherwise = neUpd
-  where
-    neUpd = ne
-      { neQueue =
-          neQueue ne `mappend`
-          (fromList . filter filtMove . toList) upd
-      }
-    filtMove ((iter, _), _) = iter >= neGameIteration ne
-netEngineProcPacket ne (Hello peer hType) peerAddr
-  | 2 == length (nePeers ne) = ne
-  | otherwise = ne
-    { nePeers = peer : nePeers ne
-    , nePeerAddrs = [peerAddr]
-    , neGameIteration = 0
-    , neQueue = netEngineInitialQueue (nePeerId ne) (neLatencyIters ne)
-    , neOutputPacket = do
-        guard $ hType == LetsPlay
-        return (Hello (nePeerId ne) WereOn, peerAddr)
-    }
-
-netEngineCleanup :: NetEngine a i -> NetEngine a i
-netEngineCleanup ne = ne
-  { neOutputMove = Nothing
-  , neOutputPacket = Nothing
-  }
-
-netEngineInitialQueue ::
-  (Monoid a, Ord i) => i -> Integer -> NEQueue a i
-netEngineInitialQueue peerId latencyIters =
-  fromList [((i, peerId), mempty) | i <- [0 .. latencyIters - 1]]
-
-netEngine ::
-  forall a i. (Monoid a, Ord i, Read a, Read i, Show a, Show i) =>
-  NetEngineInput a i -> NetEngineOutput a i
-netEngine nei =
-  NetEngineOutput
-  { neoMove = eMapMaybe neOutputMove ne
-  , neoSideEffect = mconcat
-    [ efRun (neiIterTimer nei) $ ((), ()) <$ moves `merge` ereturn mempty
-    , efRun (neiTransmitTimer nei) $ ((), ()) <$ efOut (neiTransmitTimer nei) `merge` ereturn ((), ())
-    , mkSideEffect (uncurry sendPacket) (eMapMaybe neOutputPacket ne)
-    , mkSideEffect (sendPacket letsPlayPacket) (neiNewPeerAddrs nei)
-    , mkSideEffect transmit (eZipByFst (efOut (neiTransmitTimer nei)) ne)
-    ]
-  , neoIsConnected = (> 1) . length . nePeers <$> ne
-  , neoPeers = nePeers <$> ne
-  }
-  where
-    transmit (_, n) =
-      forM_ (nePeerAddrs n) (sendPacket (Moves (neQueue n)))
-    letsPlayPacket :: NetEngPacket a i
-    letsPlayPacket = Hello (neiPeerId nei) LetsPlay
-    peerId = neiPeerId nei
-    localMoves = neiLocalMoveUpdates nei
-    sendPacket packet addr =
-      () <$
-      sendTo ((psSocket . neiSocket) nei)
-      ((unpack . compress . pack . show) packet) addr
-    moves = eMapMaybe neOutputMove ne
-    ne = escanl (netEngineStep . netEngineCleanup) startEngine neInput
-    neInput = foldl1 merge
-      [ LocalMove <$> localMoves
-      , IterTimer <$ efOut (neiIterTimer nei)
-      , Recv <$> (psRecv . neiSocket) nei
-      ]
-    latencyIters = 10
-    startEngine = NetEngine
-      { neLocalMove = mempty
-      , neQueue = netEngineInitialQueue peerId latencyIters
-      , neGameIteration = 0
-      , neLatencyIters = latencyIters
-      , nePeerId = peerId
-      , nePeers = [peerId]
-      , nePeerAddrs = []
-      , neWaitingForPeers = False
-      , neOutputMove = Nothing
-      , neOutputPacket = Nothing
-      }
--}

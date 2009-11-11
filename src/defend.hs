@@ -32,7 +32,8 @@ import Prelude hiding ((.), id)
 
 data MyTimers
   = TimerMatching
-  | TimerNetEngine
+  | TimerGameIter
+  | TimerTransmit
   deriving Show
 $(mkADTGetters ''MyTimers)
 
@@ -139,18 +140,24 @@ game myPeerId font =
   where
     quitButton (Char 'q', _, _, _) = Just ()
     quitButton _ = Nothing
+    setTimerTransmit = OGlut $ SetTimer 25 TimerTransmit
     neteng =
       mconcat
-      [ AMoves <$> atP gNEOMove
-      , OGlut (SetTimer 50 TimerNetEngine) <$ atP gNEOSetIterTimer
-      , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
-      ]
-      . netEngine myPeerId
-      . mconcat
-      [ NEIMatching <$> atP gAMatching
-      , NEIMove . return <$> atP gAQueueMove
-      , NEIIterTimer <$ atP (gGlut >=> gTimerEvent >=> gTimerNetEngine)
-      , (\(a, b, _) -> NEIPacket a b) <$> atP (gIUdp >=> gRecvFrom)
+      [ setTimerTransmit <$ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
+      , singleValueP setTimerTransmit
+      , mconcat
+        [ AMoves <$> atP gNEOMove
+        , OGlut (SetTimer 50 TimerGameIter) <$ atP gNEOSetIterTimer
+        , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
+        ]
+        . netEngine myPeerId
+        . mconcat
+        [ NEIMatching <$> atP gAMatching
+        , NEIMove . return <$> atP gAQueueMove
+        , NEIIterTimer     <$ atP (gGlut >=> gTimerEvent >=> gTimerGameIter)
+        , NEITransmitTimer <$ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
+        , (\(a, b, _) -> NEIPacket a b) <$> atP (gIUdp >=> gRecvFrom)
+        ]
       ]
     matching =
       mconcat

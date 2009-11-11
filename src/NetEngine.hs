@@ -209,7 +209,7 @@ netEngineNextIter ne =
       { neLocalMove = mempty
       , neQueue =
           insert moveKey (neLocalMove ne) $
-          foldr delete (neQueue ne) moveKeys
+          foldr delete (neQueue ne) delKeys
       , neGameIteration = iter + 1
       , neOutputMove = move
       , neWaitingForPeers = False
@@ -218,6 +218,7 @@ netEngineNextIter ne =
     moveKey = (iter + neLatencyIters ne, neMyPeerId ne)
     iter = neGameIteration ne
     moveKeys = (,) iter <$> nePeers ne
+    delKeys = (,) (iter - neLatencyIters ne) <$> nePeers ne
     peerMoves =
       mconcat <$>
       sequence ((`lookup` neQueue ne) <$> moveKeys)

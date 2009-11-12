@@ -26,7 +26,7 @@ Executable defend
   Executable:        defend
   HS-Source-Dirs:    src
   Main-IS:           defend.hs
-  Other-Modules:     Geometry, UI, Networking, ParseStun, Intro, Draw
+  Other-Modules:     Geometry, Networking, ParseStun, Intro, Draw
   Build-Depends:     base >=2 && < 5, peakachu, GLUT, containers,
                      random, time, utility-ht, haskell98,
                      network, HTTP, mtl, bytestring, binary,

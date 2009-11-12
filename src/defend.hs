@@ -121,7 +121,7 @@ game myPeerId font =
   , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
   ]
   -- loopback because board affects moves and vice versa
-  . inMergeProgram1 (loopbackP (AMoves <$> atP gAMoves)) (
+  . inMergeProgram1 (loopbackP lb) (
     addP neteng
     . addP calculateMoves
     . addP calculateSelection
@@ -138,6 +138,11 @@ game myPeerId font =
   , matching
   ]
   where
+    lb =
+      runMergeProg $ mconcat
+      [ AMoves <$> atP gAMoves
+      , ASide <$> atP gASide
+      ]
     quitButton (Char 'q', _, _, _) = Just ()
     quitButton _ = Nothing
     setTimerTransmit = OGlut $ SetTimer 25 TimerTransmit

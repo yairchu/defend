@@ -37,6 +37,10 @@ data MyTimers
   deriving Show
 $(mkADTGetters ''MyTimers)
 
+data Moves
+  = NormalMoves [(BoardPos, BoardPos)]
+  | ResetBoard
+
 data MyNode
   = IGlut UTCTime (GlutToProgram MyTimers)
   | IUdp (UdpToProg ())
@@ -49,7 +53,7 @@ data MyNode
   | ABoard Board
   | ASelection BoardPos BoardPos
   | AQueueMove BoardPos BoardPos
-  | AMoves [(BoardPos, BoardPos)]
+  | AMoves Moves
   | ASide (Maybe PieceSide)
   | AMatching [SockAddr]
 $(mkADTGetters ''MyNode)
@@ -151,10 +155,11 @@ game myPeerId font =
       [ setTimerTransmit <$ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
       , singleValueP setTimerTransmit
       , mconcat
-        [ AMoves <$> atP gNEOMove
+        [ AMoves . NormalMoves <$> atP gNEOMove
         , OGlut (SetTimer 50 TimerGameIter) <$ atP gNEOSetIterTimer
         , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
         , ASide . Just . pickSide <$> atP gNEOPeerConnected
+        , AMoves ResetBoard <$ atP gNEOPeerConnected
         ]
         . netEngine myPeerId
         . mconcat
@@ -203,7 +208,8 @@ game myPeerId font =
       <*> mouseMotion
     aSelection board src pos =
       ASelection src . fst <$> chooseMove board src pos
-    doMoves = foldl doMove
+    doMoves board (NormalMoves moves) = foldl doMove board moves
+    doMoves _ ResetBoard = chessStart
     doMove board (src, dst) =
       fromMaybe board $
       pieceAt board src >>= lookup dst . possibleMoves board

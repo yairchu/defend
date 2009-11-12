@@ -187,7 +187,7 @@ processPacket
   => NetEngineState a i -> SockAddr -> NetEngPacket a i
   -> NetEngineState a i
 processPacket state sender (Hello peerId _)
-  | peerId `elem` nePeers state = state
+  | length (nePeers state) > 1 = state
   | otherwise =
     (startState myPeerId)
     { nePeers = [myPeerId, peerId]

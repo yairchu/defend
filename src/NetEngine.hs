@@ -14,6 +14,7 @@ import Control.Monad ((>=>), guard)
 import Data.ADT.Getters
 import Data.ByteString.Lazy.Char8 (ByteString, pack, unpack)
 import Data.Function (on)
+import Data.List (isPrefixOf)
 import Data.Map (Map, delete, fromList, insert, lookup, toList)
 import Data.Monoid (Monoid(..))
 import FRP.Peakachu.Program
@@ -61,6 +62,9 @@ data NetEngPacket m i
   | Hello i HelloType
   deriving (Read, Show)
 
+magic :: String
+magic = "dtkffod!"
+
 atP :: FilterCategory cat => (a -> Maybe b) -> cat a b
 atP = mapMaybeC
 
@@ -85,7 +89,7 @@ filterP cond =
 outPacket
   :: (Show a, Show i)
   => NetEngPacket a i -> SockAddr -> NetEngineOutput a i
-outPacket = NEOPacket . withPack compress . show
+outPacket = NEOPacket . (magic ++) . withPack compress . show
 
 atChgOf :: Eq b
   => (a -> b) -> MergeProgram a a
@@ -167,8 +171,12 @@ netEngineStep
 netEngineStep state (NEIMove move) =
   state { neLocalMove = mappend move . neLocalMove $ state }
 netEngineStep state NEIIterTimer = netEngineNextIter state
-netEngineStep state (NEIPacket contents sender) =
-  processPacket state sender . read . withPack decompress $ contents
+netEngineStep state (NEIPacket contents sender)
+  | isPrefixOf magic contents =
+    processPacket state sender
+    . read . withPack decompress
+    . drop (length magic) $ contents
+  | otherwise = state
 netEngineStep state _ = state
 
 withPack :: (ByteString -> ByteString) -> String -> String

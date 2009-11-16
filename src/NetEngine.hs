@@ -3,7 +3,8 @@
 module NetEngine
   ( NetEngineOutput(..), NetEngineInput(..)
   , netEngine
-  , gNEOMove, gNEOPacket, gNEOSetIterTimer, gNEOPeerConnected
+  , gNEOMove, gNEOPacket, gNEOSetIterTimer
+  , gNEOPeerConnected, gNEOGameIteration
   ) where
 
 import Control.Applicative
@@ -38,6 +39,7 @@ data NetEngineOutput moveType idType
   | NEOPeerConnected idType
   | NEOPacket String SockAddr
   | NEOSetIterTimer
+  | NEOGameIteration Integer
   deriving Show
 $(mkADTGetters ''NetEngineOutput)
 
@@ -112,6 +114,7 @@ netEngine myPeerId =
     [ mconcat
       [ NEOMove . neOutputMove <$> id
       , NEOSetIterTimer <$ id
+      , NEOGameIteration . neGameIteration <$> id
       ] . atChgOf neGameIteration . atP gAState
     , mconcat
       [ outPacket (Hello myPeerId WereOn)

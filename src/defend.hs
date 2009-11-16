@@ -4,6 +4,7 @@ import Paths_DefendTheKing (getDataFileName)
 import Chess
 import Draw
 import Font
+import GameLogic (Move(..), PartialData(..))
 import Intro
 import NetEngine
 import NetMatching
@@ -14,7 +15,8 @@ import Control.Category
 import Control.FilterCategory
 import Control.Monad ((>=>), guard, join)
 import Data.ADT.Getters
-import Data.Foldable (foldl')
+import Data.List (foldl')
+import Data.Map (Map, findWithDefault, insert)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid
 import Data.Time.Clock
@@ -38,8 +40,13 @@ data MyTimers
 $(mkADTGetters ''MyTimers)
 
 data Moves
-  = NormalMoves [(BoardPos, BoardPos)]
+  = NormalMoves [Move]
   | ResetBoard
+
+data MoveLimitType
+  = SinglePieceLimit BoardPos
+  | GlobalMoveLimit
+  deriving (Eq, Ord, Show)
 
 data MyNode
   = IGlut UTCTime (GlutToProgram MyTimers)
@@ -51,11 +58,13 @@ data MyNode
   | OPrint String
   | Exit
   | ABoard Board
-  | ASelection BoardPos BoardPos
-  | AQueueMove BoardPos BoardPos
+  | ASelection Move
+  | AQueueMove Move
   | AMoves Moves
   | ASide (Maybe PieceSide)
   | AMatching [SockAddr]
+  | AMoveLimits (Map MoveLimitType Integer)
+  | AGameIteration Integer
 $(mkADTGetters ''MyNode)
 
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
@@ -87,8 +96,8 @@ withPrev =
 prevP :: MergeProgram a a
 prevP = arrC fst . withPrev
 
-singleValueP :: b -> MergeProgram a b
-singleValueP = MergeProg . runAppendProg . return
+singleValueP :: MergeProgram a ()
+singleValueP = MergeProg . runAppendProg . return $ ()
 
 keyState :: Key -> MergeProgram (GlutToProgram a) KeyState
 keyState key =
@@ -118,15 +127,18 @@ game myPeerId font =
         <*> lstP gASelection
         <*> mouseMotion
         <*> lstP gASide
+        <*> lstP gAGameIteration
         )
       <*> MergeProg (intro font) . arrC fst . atP gIGlut
       )
-  , singleValueP . OUdp $ CreateUdpListenSocket stunServer ()
+  , OUdp (CreateUdpListenSocket stunServer ()) <$ singleValueP
   , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
+  , OPrint . (++ "\n") . ("Limits: " ++) . show <$> atP gAMoveLimits
   ]
   -- loopback because board affects moves and vice versa
   . inMergeProgram1 (loopbackP lb) (
     addP neteng
+    . addP calculateLimits
     . addP calculateMoves
     . addP calculateSelection
     -- calculate board state
@@ -137,7 +149,7 @@ game myPeerId font =
   )
   . mconcat
   [ id
-  , ASide <$> singleValueP Nothing -- (Just White)
+  , ASide Nothing <$ singleValueP
   -- contact http server
   , matching
   ]
@@ -146,20 +158,29 @@ game myPeerId font =
       runMergeProg $ mconcat
       [ AMoves <$> atP gAMoves
       , ASide <$> atP gASide
+      , AMoveLimits <$> atP gAMoveLimits
+      , AGameIteration <$> atP gAGameIteration
       ]
     quitButton (Char 'q', _, _, _) = Just ()
     quitButton _ = Nothing
     setTimerTransmit = OGlut $ SetTimer 25 TimerTransmit
     neteng =
       mconcat
-      [ setTimerTransmit <$ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
-      , singleValueP setTimerTransmit
+      [ setTimerTransmit <$
+        mconcat
+        [ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
+        , singleValueP
+        ]
       , mconcat
         [ AMoves . NormalMoves <$> atP gNEOMove
         , OGlut (SetTimer 50 TimerGameIter) <$ atP gNEOSetIterTimer
         , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
         , ASide . Just . pickSide <$> atP gNEOPeerConnected
-        , AMoves ResetBoard <$ atP gNEOPeerConnected
+        , mconcat
+          [ AMoves ResetBoard <$ id
+          , AMoveLimits mempty <$ id
+          ] . atP gNEOPeerConnected
+        , AGameIteration <$> atP gNEOGameIteration
         ]
         . netEngine myPeerId
         . mconcat
@@ -189,38 +210,60 @@ game myPeerId font =
     mouseMotion = (lstPs . Just) (0, 0) (gGlut >=> gMouseMotionEvent)
     gGlut = (fmap . fmap) snd gIGlut
     calculateMoves =
-      uncurry AQueueMove
+      AQueueMove
       <$ (atP gUp <* atP gDown . prevP)
         . keyState (MouseButton LeftButton) . lstP gGlut
       <*> prevP . lstP gASelection
     calculateSelection =
       (rid .) $ aSelection
       <$> lstP gABoard
-      <*> arrC snd . MergeProg (scanlP drag (Up, (0, 0))) .
+      <*> arrC snd . MergeProg (scanlP drag (Up, Move (0, 0) 0)) .
         ((,)
         <$> keyState (MouseButton LeftButton) . lstP gGlut
-        <*> rid . (selectionSrc
-          <$> lstP gABoard
-          <*> lstP gASide
-          <*> mouseMotion
+        <*> (calcMoveIter
+          <$> rid . (selectionSrc
+            <$> lstP gABoard
+            <*> lstP gASide
+            <*> mouseMotion
+            )
+          <*> lstP gAMoveLimits
           )
         )
       <*> mouseMotion
-    aSelection board src pos =
-      ASelection src . fst <$> chooseMove board src pos
+    calculateLimits =
+      AMoveLimits <$>
+      MergeProg (scanlP updateLimits mempty)
+      . ((,) <$> atP gAQueueMove <*> lstP gAGameIteration)
+    globalMoveLimit = 10
+    pieceMoveLimit = 25
+    updateLimits prev (move, iter) =
+      insert GlobalMoveLimit (iter + globalMoveLimit)
+      . insert (SinglePieceLimit (moveDst move)) (iter + pieceMoveLimit)
+      $ prev
+    aSelection board move pos =
+      ASelection . move . fst <$>
+      chooseMove board (moveSrc (getPartial move)) pos
+    calcMoveIter move limits =
+      move
+      . max (f GlobalMoveLimit)
+      . f . SinglePieceLimit
+      . moveSrc . getPartial $ move
+      where
+        f k = findWithDefault 0 k limits
     doMoves board (NormalMoves moves) = foldl doMove board moves
     doMoves _ ResetBoard = chessStart
-    doMove board (src, dst) =
-      fromMaybe board $
-      pieceAt board src >>= lookup dst . possibleMoves board
+    doMove board move =
+      fromMaybe board
+      $ pieceAt board (moveSrc move)
+      >>= lookup (moveDst move) . possibleMoves board
     selectionSrc board side pos =
-      maybeMinimumOn
-      (distance pos . board2screen)
+      fmap Move
+      . maybeMinimumOn (distance pos . board2screen)
       . fmap piecePos
       . filter ((&&)
         <$> (/= Just False) . (<$> side) . (==) . pieceSide
         <*> canMove board)
-      $ boardPieces board
+      . boardPieces $ board
     canMove board = not . null . possibleMoves board
     drag (Down, pos) (Down, _) = (Down, pos)
     drag _ x = x

@@ -4,7 +4,7 @@ module Draw
 
 import Chess
 import Font
-import GameLogic (visibleSquares)
+import GameLogic (Move(..), visibleSquares)
 import Geometry
 
 import Control.Applicative
@@ -32,8 +32,10 @@ glStyle = Image $ do
   hint PolygonSmooth $= Nicest
   blend $= Enabled
 
-draw :: DefendFont -> Board -> (BoardPos, BoardPos) -> DrawPos -> Maybe PieceSide -> Image
-draw font board (dragSrc, dragDst) (cx, cy) me =
+draw
+  :: DefendFont -> Board -> Move
+  -> DrawPos -> Maybe PieceSide -> Integer -> Image
+draw font board drag (cx, cy) me gameIter =
   Image $ do
     blendFunc $= (SrcAlpha, OneMinusSrcAlpha)
     lighting $= Enabled
@@ -42,11 +44,11 @@ draw font board (dragSrc, dragDst) (cx, cy) me =
     cullFace $= Just Front
     drawBoard
     mapM_ drawPiece . filter ((`elem` vis) . piecePos) $ boardPieces board
-    when srcFirst $ drawCursor dragSrc
-    drawCursor dragDst
-    unless srcFirst $ drawCursor dragSrc
+    when srcFirst . drawCursor . moveSrc $ drag
+    drawCursor . moveDst $ drag
+    unless srcFirst . drawCursor . moveSrc $ drag
   where
-    srcFirst = cursorDist dragSrc < cursorDist dragDst
+    srcFirst = cursorDist (moveSrc drag) < cursorDist (moveDst drag)
     cursorDist = cursorDist' . board2screen
     cursorDist' (x, y) = (cx-x)^(2::Int) + (cy-y)^(2::Int)
     headingUp = normal $ Normal3 0 0 (-1 :: GLfloat)
@@ -116,17 +118,20 @@ draw font board (dragSrc, dragDst) (cx, cy) me =
         materialDiffuse Front $=
           case pieceUnderCursor of
             Nothing -> Color4 1 1 0 0.5
-            _ -> Color4 0 1 0 1
+            _ -> cursorColor 1
         forM_ (take 1 points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
         materialDiffuse Front $=
           case pieceUnderCursor of
             Nothing -> Color4 1 1 0 0
-            _ -> Color4 0 1 0 0.5
+            _ -> cursorColor 0.5
         forM_ (tail points) $ \[px, py, pz] ->
           vertex $ Vertex4 px py 0 pz
+    cursorColor
+      | gameIter >= moveIter drag = Color4 0 1 0
+      | otherwise = Color4 1 0 0
     pieceUnderCursor = do
-      r <- pieceAt board dragSrc
+      r <- pieceAt board . moveSrc $ drag
       guard . not . (== Just False) . (<$> me) . (==) . pieceSide $ r
       return r
     curPix =

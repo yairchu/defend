@@ -39,10 +39,6 @@ data MyTimers
   deriving Show
 $(mkADTGetters ''MyTimers)
 
-data Moves
-  = NormalMoves [Move]
-  | ResetBoard
-
 data MoveLimitType
   = SinglePieceLimit BoardPos
   | GlobalMoveLimit
@@ -60,7 +56,8 @@ data MyNode
   | ABoard Board
   | ASelection Move
   | AQueueMove Move
-  | AMoves Moves
+  | AMoves [Move]
+  | AResetBoard
   | ASide (Maybe PieceSide)
   | AMatching [SockAddr]
   | AMoveLimits (Map MoveLimitType Integer)
@@ -144,7 +141,10 @@ game myPeerId font =
     -- calculate board state
     . addP
       ( ABoard <$> MergeProg (scanlP doMoves chessStart)
-        . atP gAMoves
+        . mconcat
+        [ Just <$> atP gAMoves
+        , Nothing <$ atP gAResetBoard
+        ]
       )
   )
   . mconcat
@@ -157,6 +157,7 @@ game myPeerId font =
     lb =
       runMergeProg $ mconcat
       [ AMoves <$> atP gAMoves
+      , AResetBoard <$ atP gAResetBoard
       , ASide <$> atP gASide
       , AMoveLimits <$> atP gAMoveLimits
       , AGameIteration <$> atP gAGameIteration
@@ -172,14 +173,11 @@ game myPeerId font =
         , singleValueP
         ]
       , mconcat
-        [ AMoves . NormalMoves <$> atP gNEOMove
+        [ AMoves <$> atP gNEOMove
         , OGlut (SetTimer 50 TimerGameIter) <$ atP gNEOSetIterTimer
         , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
         , ASide . Just . pickSide <$> atP gNEOPeerConnected
-        , mconcat
-          [ AMoves ResetBoard <$ id
-          , AMoveLimits mempty <$ id
-          ] . atP gNEOPeerConnected
+        , AResetBoard <$ atP gNEOPeerConnected
         , AGameIteration <$> atP gNEOGameIteration
         ]
         . netEngine myPeerId
@@ -233,13 +231,17 @@ game myPeerId font =
     calculateLimits =
       AMoveLimits <$>
       MergeProg (scanlP updateLimits mempty)
-      . ((,) <$> atP gAQueueMove <*> lstP gAGameIteration)
+      . mconcat
+      [ Just <$> ((,) <$> atP gAQueueMove <*> lstP gAGameIteration)
+      , Nothing <$ atP (gAResetBoard)
+      ]
     globalMoveLimit = 10
     pieceMoveLimit = 25
-    updateLimits prev (move, iter) =
+    updateLimits prev (Just (move, iter)) =
       insert GlobalMoveLimit (iter + globalMoveLimit)
       . insert (SinglePieceLimit (moveDst move)) (iter + pieceMoveLimit)
       $ prev
+    updateLimits _ Nothing = mempty
     aSelection board move pos =
       ASelection . move . fst <$>
       chooseMove board (moveSrc (getPartial move)) pos
@@ -250,8 +252,8 @@ game myPeerId font =
       . moveSrc . getPartial $ move
       where
         f k = findWithDefault 0 k limits
-    doMoves board (NormalMoves moves) = foldl doMove board moves
-    doMoves _ ResetBoard = chessStart
+    doMoves board (Just moves) = foldl doMove board moves
+    doMoves _ Nothing = chessStart
     doMove board move =
       fromMaybe board
       $ pieceAt board (moveSrc move)

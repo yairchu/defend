@@ -70,17 +70,13 @@ magic = "dtkffod!"
 atP :: FilterCategory cat => (a -> Maybe b) -> cat a b
 atP = mapMaybeC
 
-withPrev :: MergeProgram a (a, a)
-withPrev =
-  mapMaybeC (uncurry (liftA2 (,)))
-  . scanlP step (Nothing, Nothing)
-  where
-    step (_, x) y = (x, Just y)
-
 outPacket
   :: (Show a, Show i)
   => NetEngPacket a i -> SockAddr -> NetEngineOutput a i
 outPacket = NEOPacket . (magic ++) . withPack compress . show
+
+withPrev :: MergeProgram a (a, a)
+withPrev = (,) <$> delayP (1::Int) <*> id
 
 atChgOf :: Eq b
   => (a -> b) -> MergeProgram a a

@@ -83,16 +83,6 @@ chooseMove board src drawPos =
   maybeMinimumOn (distance drawPos . board2screen . fst) . possibleMoves board <$>
   pieceAt board src
 
-withPrev :: MergeProgram a (a, a)
-withPrev =
-  mapMaybeC (uncurry (liftA2 (,)))
-  . scanlP step (Nothing, Nothing)
-  where
-    step (_, x) y = (x, Just y)
-
-prevP :: MergeProgram a a
-prevP = arrC fst . withPrev
-
 keyState :: Key -> MergeProgram (GlutToProgram a) KeyState
 keyState key =
   (lstPs . Just) Up (gKeyboardMouseEvent >=> f)
@@ -212,9 +202,9 @@ game myPeerId font =
     gGlut = (fmap . fmap) snd gIGlut
     calculateMoves =
       AQueueMove
-      <$ (atP gUp <* atP gDown . prevP)
+      <$ (atP gUp <* atP gDown . delayP (1 :: Int))
         . keyState (MouseButton LeftButton) . lstP gGlut
-      <*> prevP . lstP gASelection
+      <*> delayP (1 :: Int) . lstP gASelection
     calculateSelection =
       (rid .) $ aSelection
       <$> lstP gABoard

@@ -233,7 +233,7 @@ game myPeerId font =
       MergeProg (scanlP updateLimits mempty)
       . mconcat
       [ Just <$> ((,) <$> atP gAQueueMove <*> lstP gAGameIteration)
-      , Nothing <$ atP (gAResetBoard)
+      , Nothing <$ atP gAResetBoard
       ]
     globalMoveLimit = 12
     pieceMoveLimit = 28

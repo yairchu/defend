@@ -11,7 +11,7 @@ import Control.Applicative
 import Control.Category
 import Control.FilterCategory
 import Codec.Compression.Zlib (decompress, compress)
-import Control.Monad ((>=>), guard)
+import Control.Monad ((>=>))
 import Data.ADT.Getters
 import Data.ByteString.Lazy.Char8 (ByteString, pack, unpack)
 import Data.Function (on)
@@ -80,14 +80,6 @@ withPrev =
   where
     step (_, x) y = (x, Just y)
 
-filterP :: FilterCategory cat => (a -> Bool) -> cat a a
-filterP cond =
-  mapMaybeC f
-  where
-    f x = do
-      guard $ cond x :: Maybe ()
-      return x
-
 outPacket
   :: (Show a, Show i)
   => NetEngPacket a i -> SockAddr -> NetEngineOutput a i
@@ -96,7 +88,7 @@ outPacket = NEOPacket . (magic ++) . withPack compress . show
 atChgOf :: Eq b
   => (a -> b) -> MergeProgram a a
 atChgOf onfunc =
-  arrC snd . filterP (uncurry (on (/=) onfunc)) . withPrev
+  arrC snd . filterC (uncurry (on (/=) onfunc)) . withPrev
 
 netEngine
   :: ( Monoid moveType, Ord peerIdType
@@ -121,7 +113,7 @@ netEngine myPeerId =
         <$> flattenC
         . arrC nePeerAddrs
       , arrC NEOPeerConnected
-        . filterP (/= myPeerId)
+        . filterC (/= myPeerId)
         . flattenC
         . arrC nePeers
       ]
@@ -138,9 +130,9 @@ netEngine myPeerId =
     ]
   , outPacket (Hello myPeerId LetsPlay) <$> flattenC . atP gNEIMatching
   -- for warnings
-  , undefined <$> filterP (const False) . atP gNEIMove
-  , undefined <$> filterP (const False) . atP gNEIPacket
-  , undefined <$> filterP (const False) . atP gNEIIterTimer
+  , undefined <$> filterC (const False) . atP gNEIMove
+  , undefined <$> filterC (const False) . atP gNEIPacket
+  , undefined <$> filterC (const False) . atP gNEIIterTimer
   ]
   where
     sendMoves state =

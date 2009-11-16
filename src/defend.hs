@@ -130,7 +130,6 @@ game myPeerId font =
       )
   , OUdp (CreateUdpListenSocket stunServer ()) <$ singleValueP
   , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
-  , OPrint . (++ "\n") . ("Limits: " ++) . show <$> atP gAMoveLimits
   ]
   -- loopback because board affects moves and vice versa
   . inMergeProgram1 (loopbackP lb) (
@@ -183,12 +182,13 @@ game myPeerId font =
         . netEngine myPeerId
         . mconcat
         [ NEIMatching <$> atP gAMatching
-        , NEIMove . return <$> atP gAQueueMove
+        , prepMoveToNe <$> atP gAQueueMove
         , NEIIterTimer     <$ atP (gGlut >=> gTimerEvent >=> gTimerGameIter)
         , NEITransmitTimer <$ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
         , (\(a, b, _) -> NEIPacket a b) <$> atP (gIUdp >=> gRecvFrom)
         ]
       ]
+    prepMoveToNe move = NEIMove (moveIter move) [move]
     pickSide peerId
       | myPeerId < peerId = Black
       | otherwise = White
@@ -235,8 +235,8 @@ game myPeerId font =
       [ Just <$> ((,) <$> atP gAQueueMove <*> lstP gAGameIteration)
       , Nothing <$ atP (gAResetBoard)
       ]
-    globalMoveLimit = 10
-    pieceMoveLimit = 25
+    globalMoveLimit = 12
+    pieceMoveLimit = 28
     updateLimits prev (Just (move, iter)) =
       insert GlobalMoveLimit (iter + globalMoveLimit)
       . insert (SinglePieceLimit (moveDst move)) (iter + pieceMoveLimit)

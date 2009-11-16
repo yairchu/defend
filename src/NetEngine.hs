@@ -15,7 +15,7 @@ import Control.Monad ((>=>), guard)
 import Data.ADT.Getters
 import Data.ByteString.Lazy.Char8 (ByteString, pack, unpack)
 import Data.Function (on)
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, partition)
 import Data.Map (Map, delete, fromList, insert, lookup, toList)
 import Data.Monoid (Monoid(..))
 import FRP.Peakachu.Program
@@ -23,7 +23,7 @@ import Network.Socket (SockAddr)
 import Prelude hiding ((.), id, lookup)
 
 data NetEngineState moveType idType = NetEngineState
-  { neLocalMove :: moveType
+  { neLocalQueue :: [(Integer, moveType)]
   , neQueue :: Map (Integer, idType) moveType
   , nePeers :: [idType]
   , nePeerAddrs :: [SockAddr]
@@ -44,7 +44,7 @@ data NetEngineOutput moveType idType
 $(mkADTGetters ''NetEngineOutput)
 
 data NetEngineInput moveType
-  = NEIMove moveType
+  = NEIMove Integer moveType
   | NEIPacket String SockAddr
   | NEIMatching [SockAddr]
   | NEIIterTimer
@@ -151,7 +151,7 @@ startState
   => peerIdType -> NetEngineState moveType peerIdType
 startState myPeerId =
   NetEngineState
-  { neLocalMove = mempty
+  { neLocalQueue = []
   , neQueue =
       fromList
       [ ((i, myPeerId), mempty)
@@ -171,8 +171,8 @@ startState myPeerId =
 netEngineStep
   :: (Monoid a, Ord i, Read a, Read i)
   => NetEngineState a i -> NetEngineInput a -> NetEngineState a i
-netEngineStep state (NEIMove move) =
-  state { neLocalMove = mappend move . neLocalMove $ state }
+netEngineStep state (NEIMove iter move) =
+  state { neLocalQueue = (iter, move) : neLocalQueue state }
 netEngineStep state NEIIterTimer = netEngineNextIter state
 netEngineStep state (NEIPacket contents sender)
   | isPrefixOf magic contents =
@@ -217,16 +217,20 @@ netEngineNextIter ne =
     Nothing -> ne { neWaitingForPeers = True }
     Just move ->
       ne
-      { neLocalMove = mempty
+      { neLocalQueue = futureMoves
       , neQueue =
-          insert moveKey (neLocalMove ne) $
+          insert moveKey (mconcat (snd <$> nextMoves)) $
           foldr delete (neQueue ne) delKeys
       , neGameIteration = iter + 1
       , neOutputMove = move
       , neWaitingForPeers = False
       }
   where
-    moveKey = (iter + neLatencyIters ne, neMyPeerId ne)
+    (nextMoves, futureMoves) =
+      partition ((<= nextMoveIter) . fst)
+      . neLocalQueue $ ne
+    nextMoveIter = iter + neLatencyIters ne
+    moveKey = (nextMoveIter, neMyPeerId ne)
     iter = neGameIteration ne
     moveKeys = (,) iter <$> nePeers ne
     delKeys = (,) (iter - neLatencyIters ne) <$> nePeers ne

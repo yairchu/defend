@@ -123,11 +123,12 @@ netEngine myPeerId =
     ]
   , outPacket (Hello myPeerId LetsPlay) <$> flattenC . atP gNEIMatching
   -- for warnings
-  , undefined <$> filterC (const False) . atP gNEIMove
-  , undefined <$> filterC (const False) . atP gNEIPacket
-  , undefined <$> filterC (const False) . atP gNEIIterTimer
+  , unwarn gNEIIterTimer
+  , unwarn gNEIMove
+  , unwarn gNEIPacket
   ]
   where
+    unwarn x = undefined <$> filterC (const False) . atP x
     sendMoves state =
       outPacket (Moves (neQueue state)) <$> nePeerAddrs state
 

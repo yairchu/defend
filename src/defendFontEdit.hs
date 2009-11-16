@@ -114,7 +114,7 @@ gameProc =
   . mconcat
   [ id
   , AFont <$> 
-    MergeProg (scanlP fontStep mempty) .
+    scanlP fontStep mempty .
     ( (,,)
       <$> mconcat
         [ Left <$> mapMaybeC gAClick
@@ -125,7 +125,7 @@ gameProc =
   ]
   . mconcat
   [ mconcat
-    [ AText <$> MergeProg (scanlP textStep [] . mapMaybeC typedText)
+    [ AText <$> scanlP textStep [] . mapMaybeC typedText
     , ADoLoad <$ mapMaybeC (clicka (Char 'l') (Modifiers Up Up Down))
     , ADoSave <$ mapMaybeC (clicka (Char 's') (Modifiers Up Up Down))
     , AClick <$> mapMaybeC clicksFunc

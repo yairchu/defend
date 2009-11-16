@@ -70,13 +70,10 @@ magic = "dtkffod!"
 atP :: FilterCategory cat => (a -> Maybe b) -> cat a b
 atP = mapMaybeC
 
-singleValueP :: b -> MergeProgram a b
-singleValueP = MergeProg . runAppendProg . return
-
 withPrev :: MergeProgram a (a, a)
 withPrev =
   mapMaybeC (uncurry (liftA2 (,)))
-  . MergeProg (scanlP step (Nothing, Nothing))
+  . scanlP step (Nothing, Nothing)
   where
     step (_, x) y = (x, Just y)
 
@@ -101,7 +98,7 @@ netEngine
      (NetEngineOutput moveType peerIdType)
 netEngine myPeerId =
   mconcat
-  [ singleValueP NEOSetIterTimer
+  [ NEOSetIterTimer <$ singleValueP
   , mconcat
     [ mconcat
       [ NEOMove . neOutputMove <$> id
@@ -125,7 +122,7 @@ netEngine myPeerId =
         )
     ]
     . mconcat
-    [ AState <$> MergeProg (scanlP netEngineStep (startState myPeerId))
+    [ AState <$> scanlP netEngineStep (startState myPeerId)
     , arrC AInput
     ]
   , outPacket (Hello myPeerId LetsPlay) <$> flattenC . atP gNEIMatching

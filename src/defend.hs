@@ -17,7 +17,7 @@ import Control.Monad ((>=>), guard, join)
 import Data.ADT.Getters
 import Data.List (foldl')
 import Data.Map (Map, findWithDefault, insert)
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Monoid
 import Data.Time.Clock
 import FRP.Peakachu
@@ -86,15 +86,12 @@ chooseMove board src drawPos =
 withPrev :: MergeProgram a (a, a)
 withPrev =
   mapMaybeC (uncurry (liftA2 (,)))
-  . MergeProg (scanlP step (Nothing, Nothing))
+  . scanlP step (Nothing, Nothing)
   where
     step (_, x) y = (x, Just y)
 
 prevP :: MergeProgram a a
 prevP = arrC fst . withPrev
-
-singleValueP :: MergeProgram a ()
-singleValueP = MergeProg . runAppendProg . return $ ()
 
 keyState :: Key -> MergeProgram (GlutToProgram a) KeyState
 keyState key =
@@ -132,14 +129,15 @@ game myPeerId font =
   , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
   ]
   -- loopback because board affects moves and vice versa
-  . inMergeProgram1 (loopbackP lb) (
-    addP neteng
+  . loopbackP (
+    lb
+    . addP neteng
     . addP calculateLimits
     . addP calculateMoves
     . addP calculateSelection
     -- calculate board state
     . addP
-      ( ABoard <$> MergeProg (scanlP doMoves chessStart)
+      ( ABoard <$> scanlP doMoves chessStart
         . mconcat
         [ Just <$> atP gAMoves
         , Nothing <$ atP gAResetBoard
@@ -154,12 +152,17 @@ game myPeerId font =
   ]
   where
     lb =
-      runMergeProg $ mconcat
-      [ AMoves <$> atP gAMoves
-      , AResetBoard <$ atP gAResetBoard
-      , ASide <$> atP gASide
-      , AMoveLimits <$> atP gAMoveLimits
-      , AGameIteration <$> atP gAGameIteration
+      mconcat
+      [ Left <$> filterC
+        ( or . sequence
+          [ isJust . gAMoves
+          , isJust . gAResetBoard
+          , isJust . gASide
+          , isJust . gAMoveLimits
+          , isJust . gAGameIteration
+          ]
+        )
+      , Right <$> id
       ]
     quitButton (Char 'q', _, _, _) = Just ()
     quitButton _ = Nothing
@@ -215,7 +218,7 @@ game myPeerId font =
     calculateSelection =
       (rid .) $ aSelection
       <$> lstP gABoard
-      <*> arrC snd . MergeProg (scanlP drag (Up, Move (0, 0) 0)) .
+      <*> arrC snd . scanlP drag (Up, Move (0, 0) 0) .
         ((,)
         <$> keyState (MouseButton LeftButton) . lstP gGlut
         <*> (calcMoveIter
@@ -230,7 +233,7 @@ game myPeerId font =
       <*> mouseMotion
     calculateLimits =
       AMoveLimits <$>
-      MergeProg (scanlP updateLimits mempty)
+      scanlP updateLimits mempty
       . mconcat
       [ Just <$> ((,) <$> atP gAQueueMove <*> lstP gAGameIteration)
       , Nothing <$ atP gAResetBoard

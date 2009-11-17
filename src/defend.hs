@@ -64,6 +64,7 @@ data MyNode
   | AMoveLimits (Map MoveLimitType Integer)
   | AGameIteration Integer
   | ALoopback MyNode
+  | ADrawTimes UTCTime
 $(mkADTGetters ''MyNode)
 
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
@@ -160,14 +161,14 @@ game myPeerId font =
   , OGlut . DrawImage . mappend glStyle
     <$> (mappend
       <$> (draw font
-        <$ atP gGlut
+        <$ atP gADrawTimes
         <*> lstP gABoard
         <*> lstP gASelection
         <*> mouseMotion
         <*> lstP gASide
         <*> lstP gAGameIteration
         )
-      <*> MergeProg (intro font) . arrC fst . atP gIGlut
+      <*> MergeProg (intro font) . atP gADrawTimes
       )
   , OUdp (CreateUdpListenSocket stunServer ()) <$ singleValueP
   , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
@@ -183,6 +184,7 @@ game myPeerId font =
   )
   . mconcat
   [ id
+  , drawTimes
   , ASide Nothing <$ singleValueP
   -- contact http server
   , matching
@@ -190,6 +192,14 @@ game myPeerId font =
   where
     globalMoveLimit = 20
     pieceMoveLimit = 50
+    drawTimes =
+      ADrawTimes <$> atP snd
+      . scanlP drawTimeStep (Nothing, Nothing)
+      . arrC fst . atP gIGlut
+    drawTimeStep (Nothing, _) now = (Just now, Just now)
+    drawTimeStep (Just prev, _) now
+      | diffUTCTime now prev > 0.03 = (Just now, Just now)
+      | otherwise = (Just prev, Nothing)
     resetOnResetBoard prog =
       MergeProg . runAppendProg . genericCycle $
       AppendProg prog . takeWhileP (isNothing . (gALoopback >=> gAResetBoard))

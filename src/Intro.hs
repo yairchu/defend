@@ -17,7 +17,7 @@ import Prelude hiding ((.), id)
 
 relativeTime :: Program UTCTime NominalDiffTime
 relativeTime =
-  uncurry diffUTCTime <$> rid . scanlP step Nothing
+  uncurry diffUTCTime <$> genericFlattenC . scanlP step Nothing
   where
     step Nothing x = Just (x, x)
     step (Just (_, start)) x = Just (x, start)

@@ -188,6 +188,8 @@ game myPeerId font =
   , matching
   ]
   where
+    globalMoveLimit = 20
+    pieceMoveLimit = 50
     resetOnResetBoard prog =
       MergeProg . runAppendProg . genericCycle $
       AppendProg prog . takeWhileP (isNothing . (gALoopback >=> gAResetBoard))
@@ -208,6 +210,7 @@ game myPeerId font =
       <$ (atP gUp <* atP gDown . delayP (1 :: Int))
         . keyState (MouseButton LeftButton) . lstP gGlut
       <*> delayP (1 :: Int) . lstP gASelection
+    rid = genericFlattenC
     calculateSelection =
       (rid .) $ aSelection
       <$> lstP gABoard
@@ -232,8 +235,6 @@ game myPeerId font =
           <$> atP gAQueueMove
           <*> lstP (gALoopback >=> gAGameIteration)
         )
-    globalMoveLimit = 12
-    pieceMoveLimit = 28
     updateLimits prev (move, iter) =
       insert GlobalMoveLimit (iter + globalMoveLimit)
       . insert (SinglePieceLimit (moveDst move)) (iter + pieceMoveLimit)

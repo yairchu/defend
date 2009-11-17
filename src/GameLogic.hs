@@ -30,13 +30,15 @@ sortNub = map head . group . sort
 
 visibleSquares :: PieceSide -> Board -> [BoardPos]
 visibleSquares side board =
-  sortNub $ (sees =<< goodPieces) ++ (threats =<< evilPieces)
+  sortNub $ (goodPieces >>= sees) ++ (evilPieces >>= threats)
   where
     (goodPieces, evilPieces) =
       partition ((== side) . pieceSide) (boardPieces board)
-    [theKing] = filter ((== King) . pieceType) goodPieces
+    theKings = filter ((== King) . pieceType) goodPieces
+    [theKing] = theKings
     sees p = piecePos p : map fst (possibleMoves board p)
     threats p = do
+      guard . not . null $ theKings
       guard $ piecePos theKing `elem` sees p
       return $ piecePos p
 

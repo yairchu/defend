@@ -1,5 +1,5 @@
 Name:                DefendTheKing
-Version:             0.2.1
+Version:             0.3
 Cabal-Version:       >= 1.2
 Synopsis:            A simple RTS game
 Category:            game, FRP

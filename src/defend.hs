@@ -102,11 +102,60 @@ atP = mapMaybeC
 genericCycle :: Monoid a => a -> a
 genericCycle = fix . mappend
 
+gGlut :: MyNode -> Maybe (GlutToProgram MyTimers)
+gGlut = (fmap . fmap) snd gIGlut
+
+matching :: MergeProgram MyNode MyNode
+matching =
+  mconcat
+  [ OHttp . fst <$> atP gMOHttp
+  , OGlut (SetTimer 1000 TimerMatching) <$ atP gMOSetRetryTimer
+  , OPrint . ("Matching:" ++) . (++ "\n") . show <$> atP gMatchingResult
+  , AMatching . fst <$> atP gMatchingResult
+  ]
+  . netMatching
+  . mconcat
+  [ arrC (`MIHttp` ()) . atP gIHttp
+  , MITimerEvent () <$ atP (gGlut >=> gTimerEvent >=> gTimerMatching)
+  , uncurry DoMatching <$> atP (gIUdp >=> gUdpSocketAddresses)
+  ]
+
+neteng :: Integer -> MergeProgram MyNode MyNode
+neteng myPeerId =
+  mconcat
+  [ OGlut (SetTimer 25 TimerTransmit) <$
+    mconcat
+    [ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
+    , singleValueP
+    ]
+  , mconcat
+    [ AMoves <$> atP gNEOMove
+    , OGlut (SetTimer 50 TimerGameIter) <$ atP gNEOSetIterTimer
+    , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
+    , ASide . Just . pickSide <$> atP gNEOPeerConnected
+    , AResetBoard <$ atP gNEOPeerConnected
+    , AGameIteration <$> atP gNEOGameIteration
+    ]
+    . netEngine myPeerId
+    . mconcat
+    [ NEIMatching <$> atP gAMatching
+    , prepMoveToNe <$> atP gAQueueMove
+    , NEIIterTimer     <$ atP (gGlut >=> gTimerEvent >=> gTimerGameIter)
+    , NEITransmitTimer <$ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
+    , (\(a, b, _) -> NEIPacket a b) <$> atP (gIUdp >=> gRecvFrom)
+    ]
+  ]
+  where
+    prepMoveToNe move = NEIMove (moveIter move) [move]
+    pickSide peerId
+      | myPeerId < peerId = Black
+      | otherwise = White
+
 game :: Integer -> DefendFont -> Program MyNode MyNode
 game myPeerId font =
-  (takeWhileP (isNothing . gExit) .)
-  . runMergeProg
-  $ mconcat
+  runMergeProg $
+  takeWhileP (isNothing . gExit)
+  . mconcat
   [ id
   , OGlut . DrawImage . mappend glStyle
     <$> (mappend
@@ -126,7 +175,7 @@ game myPeerId font =
   -- loopback because board affects moves and vice versa
   . loopbackP (
     lb
-    . addP neteng
+    . addP (neteng myPeerId)
     . addP calculateLimits
     . addP calculateMoves
     . addP calculateSelection
@@ -153,50 +202,7 @@ game myPeerId font =
       ]
     quitButton (Char 'q', _, _, _) = Just ()
     quitButton _ = Nothing
-    setTimerTransmit = OGlut $ SetTimer 25 TimerTransmit
-    neteng =
-      mconcat
-      [ setTimerTransmit <$
-        mconcat
-        [ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
-        , singleValueP
-        ]
-      , mconcat
-        [ AMoves <$> atP gNEOMove
-        , OGlut (SetTimer 50 TimerGameIter) <$ atP gNEOSetIterTimer
-        , OUdp . ($ ()) . uncurry SendTo <$> atP gNEOPacket
-        , ASide . Just . pickSide <$> atP gNEOPeerConnected
-        , AResetBoard <$ atP gNEOPeerConnected
-        , AGameIteration <$> atP gNEOGameIteration
-        ]
-        . netEngine myPeerId
-        . mconcat
-        [ NEIMatching <$> atP gAMatching
-        , prepMoveToNe <$> atP gAQueueMove
-        , NEIIterTimer     <$ atP (gGlut >=> gTimerEvent >=> gTimerGameIter)
-        , NEITransmitTimer <$ atP (gGlut >=> gTimerEvent >=> gTimerTransmit)
-        , (\(a, b, _) -> NEIPacket a b) <$> atP (gIUdp >=> gRecvFrom)
-        ]
-      ]
-    prepMoveToNe move = NEIMove (moveIter move) [move]
-    pickSide peerId
-      | myPeerId < peerId = Black
-      | otherwise = White
-    matching =
-      mconcat
-      [ OHttp . fst <$> atP gMOHttp
-      , OGlut (SetTimer 1000 TimerMatching) <$ atP gMOSetRetryTimer
-      , OPrint . ("Matching:" ++) . (++ "\n") . show <$> atP gMatchingResult
-      , AMatching . fst <$> atP gMatchingResult
-      ]
-      . MergeProg netMatching
-      . mconcat
-      [ arrC (`MIHttp` ()) . atP gIHttp
-      , MITimerEvent () <$ atP (gGlut >=> gTimerEvent >=> gTimerMatching)
-      , uncurry DoMatching <$> atP (gIUdp >=> gUdpSocketAddresses)
-      ]
     mouseMotion = (lstPs . Just) (0, 0) (gGlut >=> gMouseMotionEvent)
-    gGlut = (fmap . fmap) snd gIGlut
     calculateMoves =
       AQueueMove
       <$ (atP gUp <* atP gDown . delayP (1 :: Int))

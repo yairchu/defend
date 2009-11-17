@@ -15,9 +15,10 @@ import Control.Category
 import Control.FilterCategory
 import Control.Monad ((>=>), guard, join)
 import Data.ADT.Getters
+import Data.Function (fix)
 import Data.List (foldl')
 import Data.Map (Map, findWithDefault, insert)
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid
 import Data.Time.Clock
 import FRP.Peakachu
@@ -62,6 +63,7 @@ data MyNode
   | AMatching [SockAddr]
   | AMoveLimits (Map MoveLimitType Integer)
   | AGameIteration Integer
+  | ALoopback MyNode
 $(mkADTGetters ''MyNode)
 
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
@@ -97,6 +99,9 @@ addP = mappend id
 atP :: FilterCategory cat => (a -> Maybe b) -> cat a b
 atP = mapMaybeC
 
+genericCycle :: Monoid a => a -> a
+genericCycle = fix . mappend
+
 game :: Integer -> DefendFont -> Program MyNode MyNode
 game myPeerId font =
   (takeWhileP (isNothing . gExit) .)
@@ -125,14 +130,7 @@ game myPeerId font =
     . addP calculateLimits
     . addP calculateMoves
     . addP calculateSelection
-    -- calculate board state
-    . addP
-      ( ABoard <$> scanlP doMoves chessStart
-        . mconcat
-        [ Just <$> atP gAMoves
-        , Nothing <$ atP gAResetBoard
-        ]
-      )
+    . addP calculateBoard
   )
   . mconcat
   [ id
@@ -141,17 +139,16 @@ game myPeerId font =
   , matching
   ]
   where
+    resetOnResetBoard prog =
+      MergeProg . runAppendProg . genericCycle $
+      AppendProg prog . takeWhileP (isNothing . (gALoopback >=> gAResetBoard))
+    calculateBoard =
+      resetOnResetBoard $
+      ABoard <$> scanlP (foldl doMove) chessStart
+      . atP (gALoopback >=> gAMoves)
     lb =
       mconcat
-      [ Left <$> filterC
-        ( or . sequence
-          [ isJust . gAMoves
-          , isJust . gAResetBoard
-          , isJust . gASide
-          , isJust . gAMoveLimits
-          , isJust . gAGameIteration
-          ]
-        )
+      [ Left . ALoopback <$> filterC (isNothing . gALoopback)
       , Right <$> id
       ]
     quitButton (Char 'q', _, _, _) = Just ()
@@ -214,27 +211,27 @@ game myPeerId font =
         <*> (calcMoveIter
           <$> rid . (selectionSrc
             <$> lstP gABoard
-            <*> lstP gASide
+            <*> lstP (gALoopback >=> gASide)
             <*> mouseMotion
             )
-          <*> lstP gAMoveLimits
+          <*> lstP (gALoopback >=> gAMoveLimits)
           )
         )
       <*> mouseMotion
     calculateLimits =
-      AMoveLimits <$>
-      scanlP updateLimits mempty
-      . mconcat
-      [ Just <$> ((,) <$> atP gAQueueMove <*> lstP gAGameIteration)
-      , Nothing <$ atP gAResetBoard
-      ]
+      resetOnResetBoard $
+      AMoveLimits <$> scanlP updateLimits mempty
+      . runMergeProg
+        ( (,)
+          <$> atP gAQueueMove
+          <*> lstP (gALoopback >=> gAGameIteration)
+        )
     globalMoveLimit = 12
     pieceMoveLimit = 28
-    updateLimits prev (Just (move, iter)) =
+    updateLimits prev (move, iter) =
       insert GlobalMoveLimit (iter + globalMoveLimit)
       . insert (SinglePieceLimit (moveDst move)) (iter + pieceMoveLimit)
       $ prev
-    updateLimits _ Nothing = mempty
     aSelection board move pos =
       ASelection . move . fst <$>
       chooseMove board (moveSrc (getPartial move)) pos
@@ -245,8 +242,6 @@ game myPeerId font =
       . moveSrc . getPartial $ move
       where
         f k = findWithDefault 0 k limits
-    doMoves board (Just moves) = foldl doMove board moves
-    doMoves _ Nothing = chessStart
     doMove board move =
       fromMaybe board
       $ pieceAt board (moveSrc move)

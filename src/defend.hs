@@ -278,7 +278,7 @@ game myPeerId font =
     calculateSelection =
       (rid .) $ aSelection
       <$> lstP gABoard
-      <*> arrC snd . scanlP drag (Up, Move (0, 0) 0) .
+      <*> arrC snd . scanlP drag (Up, Move (0, 0) White 0) .
         ((,)
         <$> keyState (MouseButton LeftButton) . lstP gGlut
         <*> (calcMoveIter
@@ -314,13 +314,13 @@ game myPeerId font =
       where
         f k = findWithDefault 0 k limits
     doMove board move =
-      fromMaybe board
-      $ pieceAt board (moveSrc move)
-      >>= lookup (moveDst move) . possibleMoves board
+      fromMaybe board $ do
+        piece <- pieceAt board . moveSrc $ move
+        guard $ pieceSide piece == movePlayer move
+        lookup (moveDst move) . possibleMoves board $ piece
     selectionSrc board side pos =
-      fmap Move
-      . maybeMinimumOn (distance pos . board2screen)
-      . fmap piecePos
+      fmap (Move <$> piecePos <*> pieceSide)
+      . maybeMinimumOn (distance pos . board2screen . piecePos)
       . filter ((&&)
         <$> (/= Just False) . (<$> side) . (==) . pieceSide
         <*> canMove board)

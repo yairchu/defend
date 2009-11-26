@@ -11,6 +11,7 @@ import Data.List (group, partition, sort)
 
 data Move = Move
   { moveSrc :: BoardPos
+  , movePlayer :: PieceSide
   , moveIter :: Integer
   , moveDst :: BoardPos
   }

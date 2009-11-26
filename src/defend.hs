@@ -13,7 +13,7 @@ import Networking
 import Control.Applicative
 import Control.Category
 import Control.FilterCategory
-import Control.Monad ((>=>), guard, join)
+import Control.Monad ((>=>), forM_, guard, join)
 import Data.ADT.Getters
 import Data.Function (fix)
 import Data.List (foldl')
@@ -21,6 +21,7 @@ import Data.Map (Map, findWithDefault, insert)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Monoid
 import Data.Time.Clock
+import Data.Traversable (sequenceA)
 import FRP.Peakachu
 import FRP.Peakachu.Program
 import FRP.Peakachu.Backend.GLUT
@@ -54,6 +55,7 @@ data MyNode
   | OHttp String
   | OPrint String
   | Exit
+  | AText String
   | ABoard Board
   | ASelection Move
   | AQueueMove Move
@@ -65,6 +67,7 @@ data MyNode
   | AGameIteration Integer
   | ALoopback MyNode
   | ADrawTimes UTCTime
+  | AReadyForGame
 $(mkADTGetters ''MyNode)
 
 maybeMinimumOn :: Ord b => (a -> b) -> [a] -> Maybe a
@@ -152,26 +155,41 @@ neteng myPeerId =
       | myPeerId < peerId = Black
       | otherwise = White
 
+drawText :: DefendFont -> String -> Image
+drawText font text =
+  Image $ do
+    lighting $= Disabled
+    color $ Color4 0.25 0 0.5 (0.5 :: GLfloat)
+    renderPrimitive Triangles
+      . forM_ (renderText font text >>= id)
+      $ \(x, y) ->
+      vertex $ Vertex4 (x/2) (y/2) 0 1
+
+gNothing :: Maybe a -> Maybe ()
+gNothing Nothing = Just ()
+gNothing _ = Nothing
+
 game :: Integer -> DefendFont -> Program MyNode MyNode
 game myPeerId font =
   runMergeProg $
   takeWhileP (isNothing . gExit)
   . mconcat
   [ id
-  , OGlut . DrawImage . mappend glStyle
-    <$> (mappend
-      <$> (draw font
-        <$ atP gADrawTimes
-        <*> lstP gABoard
+  , OGlut . DrawImage . mconcat
+    <$ atP gADrawTimes
+    <*> sequenceA
+    [ pure glStyle
+    , draw font
+        <$> lstP gABoard
         <*> lstP gASelection
         <*> mouseMotion
         <*> lstP gASide
         <*> lstP gAGameIteration
-        )
-      <*> MergeProg (intro font) . atP gADrawTimes
-      )
-  , OUdp (CreateUdpListenSocket stunServer ()) <$ singleValueP
+    , drawText font <$> lstP gAText
+    , MergeProg (intro font) . atP gADrawTimes
+    ]
   , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
+  , OPrint "Got Udp Addr\n" <$ atP (gIUdp >=> gUdpSocketAddresses)
   ]
   -- loopback because board affects moves and vice versa
   . loopbackP (
@@ -182,14 +200,48 @@ game myPeerId font =
     . addP calculateSelection
     . addP calculateBoard
   )
+  . addP emptyP
+  . addP (
+    MergeProg
+    . withAppendProgram1
+    ( mappend
+      ( atP (const Nothing)
+      . takeWhileP (isNothing . gAReadyForGame)
+    ) )
+    . runMergeProg
+    . mconcat $
+    [ matching
+    , OUdp (CreateUdpListenSocket stunServer ()) <$ singleValueP
+    ]
+    )
   . mconcat
   [ id
   , drawTimes
   , ASide Nothing <$ singleValueP
-  -- contact http server
-  , matching
+  , mconcat
+    [ AText <$> atP id
+    , AReadyForGame <$ atP gNothing
+    , AText "" <$ atP gNothing
+    ]
+    . arrC head
+    . takeWhileP (not . null)
+    . scanlP (flip (const tail)) instructions
+    . atP (gGlut >=> gKeyboardMouseEvent >=> space)
   ]
   where
+    instructions =
+      map Just
+      [ "welcome.\nget ready to\ndefend\nthe king.\npress space."
+      , "drag and drop\nsome pieces.\nhit spacebar\nto resume."
+      , "there are no turns.\nwhen the cursor\nis green\n"
+        ++ "you can move.\nspace for more."
+      , "when you\ndefend\nthe king\nyou will not\n"
+        ++ "see the whole\nbattlefield.\nspace to see\nmore instructions."
+      , "you will only\nsee the squares\nin reach of\n"
+        ++ "your army.\nspace for\nnext message.."
+      , "press space again\nto battle\nagainst a real\nking\n"
+        ++ "like you.\nexcept evil."
+      ] ++ [Nothing]
     globalMoveLimit = 20
     pieceMoveLimit = 50
     drawTimes =
@@ -212,6 +264,8 @@ game myPeerId font =
       [ Left . ALoopback <$> filterC (isNothing . gALoopback)
       , Right <$> id
       ]
+    space (Char ' ', Down, _, _) = Just ()
+    space _ = Nothing
     quitButton (Char 'q', _, _, _) = Just ()
     quitButton _ = Nothing
     mouseMotion = (lstPs . Just) (0, 0) (gGlut >=> gMouseMotionEvent)

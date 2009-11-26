@@ -130,8 +130,8 @@ gameProc =
     , ADoSave <$ mapMaybeC (clicka (Char 's') (Modifiers Up Up Down))
     , AClick <$> mapMaybeC clicksFunc
     ] . mapMaybeC (gGlut >=> gKeyboardMouseEvent)
-  , APos <$> toGrid <$> lstP (gGlut >=> gMouseMotionEvent)
-  , AFont <$> read . fst <$> lstP (gFileI >=> gFileData)
+  , APos <$> toGrid <$> mapMaybeC (gGlut >=> gMouseMotionEvent)
+  , AFont <$> read . fst <$> mapMaybeC (gFileI >=> gFileData)
   ]
   where
     typedText (c, s, m, _) = do

@@ -29,7 +29,7 @@ Executable defend
   Other-Modules:     Geometry, Networking, ParseStun, Intro, Draw, Parse, NetMatching, NetEngine, Chess, GameLogic, Font
   Build-Depends:     base >=2 && < 5, peakachu >= 0.2, GLUT, containers,
                      random, time, utility-ht, haskell98,
-                     network, HTTP, mtl, bytestring, binary,
+                     network, HTTP >= 4000.0.5, mtl, bytestring, binary,
                      MaybeT, zlib
   GHC-Options:       -O2 -Wall
 Executable defendFontEdit

@@ -161,7 +161,7 @@ drawText font text =
     lighting $= Disabled
     color $ Color4 0.25 0 0.5 (0.5 :: GLfloat)
     renderPrimitive Triangles
-      . forM_ (renderText font text >>= id)
+      . (forM_ . join) (renderText font text)
       $ \(x, y) ->
       vertex $ Vertex4 (x/2) (y/2) 0 1
 

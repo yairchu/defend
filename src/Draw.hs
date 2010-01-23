@@ -140,6 +140,6 @@ draw font board drag (cx, cy) me gameIter =
         Just p -> map (map t) . pixOutline . piecePix font $ pieceType p
       where
         t (x, y) = (pieceSize*x, pieceSize*y)
-    square = [((-1), (-1)), ((-1), 1), (1, 1), (1, (-1))]
+    square = [(-1, -1), (-1, 1), (1, 1), (1, -1)]
 
 

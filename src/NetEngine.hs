@@ -161,7 +161,7 @@ netEngineStep state (NEIMove iter move) =
   state { neLocalQueue = (iter, move) : neLocalQueue state }
 netEngineStep state NEIIterTimer = netEngineNextIter state
 netEngineStep state (NEIPacket contents sender)
-  | isPrefixOf magic contents =
+  | magic `isPrefixOf` contents =
     processPacket state sender
     . read . withPack decompress
     . drop (length magic) $ contents

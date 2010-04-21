@@ -72,18 +72,18 @@ draw font text cpos@(cx, cy) =
   Image $ do
     color $ Color4 0.1 0.3 0.1 (1 :: GLfloat)
     renderPrimitive Triangles .
-      forM (addPoint polygons cpos) $ \poly ->
-      forM ((
+      forM_ (addPoint polygons cpos) $ \poly ->
+      forM_ ((
         filter ((== 3) . length) .
         map (expandPolygon (-0.01)) .
         triangulatePolygon
         ) poly) .
-      mapM $ \(x, y) ->
+      mapM_ $ \(x, y) ->
       vertex $ Vertex2 x y
-    forM gridLines $ \x ->
-      forM gridLines $ \y ->
+    forM_ gridLines $ \x ->
+      forM_ gridLines $ \y ->
       drawPoint x y 0.03 (Color4 0.5 0.5 0.5 1)
-    forM (concat polygons) $ \(x, y) ->
+    forM_ (concat polygons) $ \(x, y) ->
       drawPoint x y 0.07 (Color4 0.3 1 0.2 1)
     drawPoint cx cy 0.05 (Color4 1 0.2 0.2 1)
     currentRasterPosition $= Vertex4 (-1) (-1) 0 (1 :: GLfloat)

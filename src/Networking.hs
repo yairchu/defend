@@ -51,7 +51,7 @@ udpB =
     socketsVar <- newMVar mempty
     let
       consume (CreateUdpListenSocket stunServer tag) = do
-        forkIO $ do
+        _ <- forkIO $ do
           (sock, addrs) <-
             getHostAddrByName stunServer >>=
             createListenUdpSocket . SockAddrInet stunPort
@@ -63,7 +63,7 @@ udpB =
         return ()
       consume (SendTo msg addr tag) = do
         sockets <- readMVar socketsVar
-        sendTo (sockets ! tag) msg addr
+        _ <- sendTo (sockets ! tag) msg addr
         return ()
     return mempty
       { sinkConsume = consume
@@ -77,7 +77,7 @@ httpGetB =
     }
   where
     consume handler (url, tag) = do
-      forkIO $ do
+      _ <- forkIO $ do
         eresp <- simpleHTTP . getRequest $ url
         case eresp of
           Left _ -> handler (Nothing, tag)
@@ -117,13 +117,13 @@ bindUdpAnyPort sock = do
 udpGetInternetAddr :: SockAddr -> Socket -> IO SockAddr
 udpGetInternetAddr stunServer sock = do
   gotResponseVar <- newMVar False
-  forkIO . fix $ \resume -> do
+  _ <- forkIO . fix $ \resume -> do
     gotResponse <- readMVar gotResponseVar
     unless gotResponse $ do
       requestRaw <-
         fmap ("\0\1\0\0" ++) .
         replicateM 16 . fmap chr $ randomRIO (0, 255)
-      sendTo sock requestRaw stunServer
+      _ <- sendTo sock requestRaw stunServer
       threadDelay 500000 -- 0.5 second
       resume
   (responseRaw, _, _) <- recvFrom sock 1024

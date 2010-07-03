@@ -89,7 +89,7 @@ chooseMove board src drawPos =
   maybeMinimumOn (distance drawPos . board2screen . fst) . possibleMoves board <$>
   pieceAt board src
 
-keyState :: Key -> MergeProgram (GlutToProgram a) KeyState
+keyState :: Key -> Program (GlutToProgram a) KeyState
 keyState key =
   (lstPs . Just) Up (gKeyboardMouseEvent >=> f)
   where
@@ -109,7 +109,7 @@ genericCycle = fix . mappend
 gGlut :: MyNode -> Maybe (GlutToProgram MyTimers)
 gGlut = (fmap . fmap) snd gIGlut
 
-matching :: MergeProgram MyNode MyNode
+matching :: Program MyNode MyNode
 matching =
   mconcat
   [ OHttp . fst <$> atP gMOHttp
@@ -124,7 +124,7 @@ matching =
   , uncurry DoMatching <$> atP (gIUdp >=> gUdpSocketAddresses)
   ]
 
-neteng :: Integer -> MergeProgram MyNode MyNode
+neteng :: Integer -> Program MyNode MyNode
 neteng myPeerId =
   mconcat
   [ OGlut (SetTimer 25 TimerTransmit) <$
@@ -171,7 +171,6 @@ gNothing _ = Nothing
 
 game :: Integer -> DefendFont -> Program MyNode MyNode
 game myPeerId font =
-  runMergeProg $
   takeWhileP (isNothing . gExit)
   . mconcat
   [ id
@@ -186,7 +185,7 @@ game myPeerId font =
         <*> lstP gASide
         <*> lstP gAGameIteration
     , drawText font <$> lstP gAText
-    , MergeProg (intro font) . atP gADrawTimes
+    , intro font . atP gADrawTimes
     ]
   , Exit <$ atP (gGlut >=> gKeyboardMouseEvent >=> quitButton)
   , OPrint "Got Udp Addr\n" <$ atP (gIUdp >=> gUdpSocketAddresses)
@@ -202,18 +201,17 @@ game myPeerId font =
   )
   . addP emptyP
   . addP (
-    MergeProg
-    . withAppendProgram1
-    ( mappend
-      ( atP (const Nothing)
-      . takeWhileP (isNothing . gAReadyForGame)
-    ) )
-    . runMergeProg
-    . mconcat $
-    [ matching
-    , OUdp (CreateUdpListenSocket stunServer ()) <$ singleValueP
-    ]
+    withAppendProgram2
+    mappend
+    ( atP (const Nothing)
+    . takeWhileP (isNothing . gAReadyForGame)
     )
+    ( mconcat
+      [ matching
+      , OUdp (CreateUdpListenSocket stunServer ()) <$ singleValueP
+      ]
+    )
+  )
   . mconcat
   [ id
   , drawTimes
@@ -253,8 +251,8 @@ game myPeerId font =
       | diffUTCTime now prev > 0.03 = (Just now, Just now)
       | otherwise = (Just prev, Nothing)
     resetOnResetBoard prog =
-      MergeProg . runAppendProg . genericCycle $
-      AppendProg prog . takeWhileP (isNothing . (gALoopback >=> gAResetBoard))
+      runAppendProg . genericCycle $
+      AppendProg prog . (AppendProg . takeWhileP) (isNothing . (gALoopback >=> gAResetBoard))
     calculateBoard =
       resetOnResetBoard $
       ABoard <$> scanlP (foldl doMove) chessStart
@@ -294,8 +292,7 @@ game myPeerId font =
     calculateLimits =
       resetOnResetBoard $
       AMoveLimits <$> scanlP updateLimits mempty
-      . runMergeProg
-        ( (,)
+      . ( (,)
           <$> atP gAQueueMove
           <*> lstP (gALoopback >=> gAGameIteration)
         )

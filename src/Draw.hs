@@ -70,8 +70,8 @@ draw font board drag (cx, cy) me gameIter =
       headingUp
       materialDiffuse Front $= bodyCol
       renderPrimitive Triangles .
-        forM (pixBody pix) .
-        mapM $ vert (pieceSize * 0.125)
+        forM_ (pixBody pix) .
+        mapM_ $ vert (pieceSize * 0.125)
       materialDiffuse Front $= outlineCol
       renderPrimitive Quads .
         forM (pixOutline pix) $ \outline ->

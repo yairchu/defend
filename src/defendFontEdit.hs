@@ -103,7 +103,6 @@ draw font text cpos@(cx, cy) =
 
 gameProc :: Program MyIn MyOut
 gameProc =
-  runMergeProg $
   mconcat
   [ GlutO . DrawImage <$> (draw <$> lstP gAFont <*> lstP gAText <*> lstP gAPos)
   , FileO <$> mconcat

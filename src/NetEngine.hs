@@ -75,23 +75,15 @@ outPacket
   => NetEngPacket a i -> SockAddr -> NetEngineOutput a i
 outPacket = NEOPacket . (magic ++) . withPack compress . show
 
-withPrev :: MergeProgram a (a, a)
+withPrev :: Program a (a, a)
 withPrev = (,) <$> delayP (1::Int) <*> id
 
-atChgOf :: Eq b
-  => (a -> b) -> MergeProgram a a
-atChgOf onfunc =
-  arrC snd . filterC (uncurry (on (/=) onfunc)) . withPrev
+atChgOf :: Eq b => (a -> b) -> Program a a
+atChgOf onfunc = arrC snd . filterC (uncurry (on (/=) onfunc)) . withPrev
 
 netEngine
-  :: ( Monoid moveType, Ord peerIdType
-     , Read moveType, Read peerIdType
-     , Show moveType, Show peerIdType
-     )
-  => peerIdType
-  -> MergeProgram
-     (NetEngineInput moveType)
-     (NetEngineOutput moveType peerIdType)
+  :: (Monoid moveType, Ord peerIdType, Read moveType, Read peerIdType, Show moveType, Show peerIdType)
+  => peerIdType -> Program (NetEngineInput moveType) (NetEngineOutput moveType peerIdType)
 netEngine myPeerId =
   mconcat
   [ NEOSetIterTimer <$ singleValueP

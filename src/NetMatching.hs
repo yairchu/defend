@@ -28,7 +28,7 @@ data MatchingOut a
   deriving Show
 $(mkADTGetters ''MatchingOut)
 
-netMatching :: (Ord a, ProgCat prog) => prog (MatchingIn a) (MatchingOut a)
+netMatching :: Ord a => Program (MatchingIn a) (MatchingOut a)
 netMatching =
   mapMaybeC snd . scanlP step (mempty, Nothing)
   where

@@ -23,7 +23,6 @@ Build-Type:          Simple
 Data-Files:          data/defend.font
 
 Executable defend
-  Executable:        defend
   HS-Source-Dirs:    src
   Main-IS:           defend.hs
   Other-Modules:     Geometry, Networking, ParseStun, Intro, Draw, Parse, NetMatching, NetEngine, Chess, GameLogic, Font
@@ -33,7 +32,6 @@ Executable defend
                      MaybeT, zlib
   GHC-Options:       -O2 -Wall
 Executable defendFontEdit
-  Executable:        defendFontEdit
   HS-Source-Dirs:    src
   Main-IS:           defendFontEdit.hs
   Other-Modules:     Geometry

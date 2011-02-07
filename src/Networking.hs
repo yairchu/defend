@@ -23,12 +23,12 @@ import Data.Map ((!), insert)
 import Data.Monoid (Monoid(..))
 import FRP.Peakachu.Backend (Backend(..))
 import FRP.Peakachu.Backend.Internal (Sink(..))
-import Network.BSD (getHostByName, getHostName, hostAddress)
+import Network.BSD (getHostByName, hostAddress)
 import Network.HTTP (getRequest, rspBody, simpleHTTP)
 import Network.Socket (
   Family(..), HostAddress, PortNumber(..),
   SockAddr(..), Socket, SocketType(..),
-  bindSocket, iNADDR_ANY,
+  bindSocket, connect, getSocketName, iNADDR_ANY,
   recvFrom, sendTo, socket
   )
 import Random (randomRIO)
@@ -89,8 +89,17 @@ getHostAddrByName =
   fmap hostAddress . getHostByName
 
 getHostAddress :: IO HostAddress
-getHostAddress =
-  getHostName >>= getHostAddrByName
+getHostAddress = do
+  sock <- socket AF_INET Datagram 0
+  connect sock (SockAddrInet 80 anInternetHostAddress)
+  SockAddrInet _ r <- getSocketName sock
+  return r
+  where
+    -- a random IP from the internet (74.125.230.83).
+    -- It's one of "google.com".
+    -- we're going to fake UDP connect to it. See:
+    -- http://stackoverflow.com/questions/166506/finding-local-ip-addresses-in-python/166589#166589
+    anInternetHostAddress = 1407614282
 
 stunPort :: PortNumber
 stunPort = fromInteger 3478

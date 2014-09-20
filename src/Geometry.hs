@@ -13,7 +13,7 @@ faceNormal points =
     base = map (zipWith (-) offset) (tail points)
     [[a0, a1, a2], [b0, b1, b2]] = base
 
-normalizeVector :: Floating a => [a] -> [a]
+normalizeVector :: (Eq a, Floating a) => [a] -> [a]
 normalizeVector vec
   | all (== 0) vec = vec
   | otherwise = map (/ norm) vec
@@ -29,7 +29,7 @@ tailRot (x : xs) = xs ++ [x]
 
 type Line a = ((a, a), (a, a))
 
-slope :: Fractional a => Line a -> Maybe a
+slope :: (Eq a, Fractional a) => Line a -> Maybe a
 slope ((x0, y0), (x1, y1))
   | x0 == x1 = Nothing
   | otherwise = Just $ (y1-y0) / (x1-x0)
@@ -49,7 +49,7 @@ lineIntersection a@((xa0, _), _) b@((xb0, yb0), _) =
         in
           Just (x, yAt0 a da + x * da)
 
-expandPolygon :: Floating a => a -> [(a, a)] -> [(a, a)]
+expandPolygon :: (Eq a, Floating a) => a -> [(a, a)] -> [(a, a)]
 expandPolygon ammount outline
   | null t = []
   | otherwise = last t : init t

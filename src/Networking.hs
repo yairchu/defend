@@ -14,6 +14,7 @@ import ParseStun (
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newMVar, readMVar)
 import Control.Concurrent.MVar.YC (modifyMVarPure, writeMVar)
+import Control.Exception (try)
 import Control.Monad (forever, join, liftM2, unless, when, replicateM)
 import Data.ADT.Getters
 import Data.Char (chr)
@@ -31,8 +32,8 @@ import Network.Socket (
   bindSocket, connect, getSocketName, iNADDR_ANY,
   recvFrom, sendTo, socket
   )
-import Random (randomRIO)
-import System.IO.Error (isAlreadyInUseError, try)
+import System.Random (randomRIO)
+import System.IO.Error (isAlreadyInUseError)
 import Text.Read.HT (maybeRead)
 
 data ProgToUdp a
